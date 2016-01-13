@@ -1,6 +1,18 @@
 -----------------------------------------------------------
-1.0.1
+1.1.1
+	- Fixed PHP fatal error when initializing API.
+
+-----------------------------------------------------------
+1.1
+	- Added error message for versions of PHP that do not support 64-bit integers.
 	- Added some additional logging statements.
+	- Added SSL compatibility check to prevent plugin from running when SSL is not available.
+	- Fixed Dropbox PHP SDK autoloader from being included when if autoloader class already exists.
+	- Fixed Dropbox Upload field being included if custom app key and secret were not provided.
+	- Fixed files uploaded through the Dropbox Upload field not uploading to remote Dropbox.
+	- Removed debugging output from plugin settings page.
+	- Updated plugin settings with a more streamlined install process.
+	- Updated save URL functions to use WordPress API functions.
 
 -----------------------------------------------------------
 1.0

@@ -58,13 +58,31 @@ class GFDropbox extends GFFeedAddOn {
 	 */
 	public function plugin_settings_page() {
 		
+		/* Setup plugin icon .*/
 		$icon = $this->plugin_settings_icon();
 		if ( empty( $icon ) ) {
 			$icon = '<i class="fa fa-cogs"></i>';
 		}
 
-		$html  = sprintf( '<h3><span>%s %s</span></h3>', $icon, $this->plugin_settings_title() );
-		$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires PHP 5.3 or greater to run. To continue using this Add-On, please upgrade PHP.', 'gravityformsdropbox' ) . '</p>';
+		/* Setup page title. */
+		$html = sprintf( '<h3><span>%s %s</span></h3>', $icon, $this->plugin_settings_title() );
+		
+		if ( PHP_INT_MAX !== 9223372036854775807 ) {
+			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires a version of PHP that supports 64-bit integers. To continue using this Add-On, please upgrade PHP to a version that supports 64-bit integers.', 'gravityformsdropbox' ) . '</p>';
+		}
+		
+		if ( version_compare( PHP_VERSION, '5.3.0', '<' ) ) {
+			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires PHP 5.3 or greater to run. To continue using this Add-On, please upgrade PHP.', 'gravityformsdropbox' ) . '</p>';		
+		}
+		
+		$ssl_support = get_option( 'gravityformsaddon_gravityformsdropbox_ssl', null );	
+		if ( $ssl_support != '1' ) {
+			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires SSL to run. To continue using this Add-On, please install an SSL certificate.', 'gravityformsdropbox' ) . '</p>';		
+			$html .= '<p>' . sprintf(
+				esc_html__( 'Once you have installed an SSL certificate, %1$sclick here to active the Add-On%2$s.', 'gravityformsdropbox' ),
+				'<a href="' . add_query_arg( 'gfdropboxsslreset', '1' ) . '">', '</a>' )
+			. '</p>';		
+		}
 		
 		echo $html;
 		
