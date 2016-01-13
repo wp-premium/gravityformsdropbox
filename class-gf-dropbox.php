@@ -5,7 +5,7 @@ GFForms::include_feed_addon_framework();
 class GFDropbox extends GFFeedAddOn {
 
 	protected $_version = GF_DROPBOX_VERSION;
-	protected $_min_gravityforms_version = '1.9.12.17';
+	protected $_min_gravityforms_version = '1.9.14';
 	protected $_slug = 'gravityformsdropbox';
 	protected $_path = 'gravityformsdropbox/dropbox.php';
 	protected $_full_path = __FILE__;
@@ -23,8 +23,6 @@ class GFDropbox extends GFFeedAddOn {
 	protected $_capabilities = array( 'gravityforms_dropbox', 'gravityforms_dropbox_uninstall' );
 
 	protected $api = null;
-	protected $dropbox_app_key = 'eylx4df4olbnm48';
-	protected $dropbox_app_secret = '13w3fwg3k504onk';
 	protected $dropbox_client_identifier = 'Gravity-Forms-Dropbox/1.0';
 	protected $dropbox_feeds_to_process = array();
 	protected $nonce_action = 'gform_dropbox_upload';
@@ -58,13 +56,15 @@ class GFDropbox extends GFFeedAddOn {
 		
 		parent::init();
 		
-		/* Load the Dropbox field class. */
-		if ( $this->get_plugin_setting( 'customAppEnable' ) ) {
-			require_once 'includes/class-gf-field-dropbox.php';
+		/* Load Dropbox library */
+		if ( ! function_exists( '\Dropbox\autoload' ) ) {
+			require_once 'includes/api/autoload.php';
 		}
 
-		/* Load Dropbox library */
-		require_once 'includes/api/autoload.php';
+		/* Load the Dropbox field class. */
+		if ( ! $this->get_plugin_setting( 'defaultAppEnabled' ) && $this->initialize_api() ) {
+			require_once 'includes/class-gf-field-dropbox.php';
+		}
 				
 		/* Delete any files to not be stored locally after processing feeds. */
 		add_filter( 'shutdown', array( $this, 'maybe_delete_files' ), 11 );
@@ -77,6 +77,9 @@ class GFDropbox extends GFFeedAddOn {
 
 		/* Add Dropbox field settings */
 		add_action( 'gform_field_standard_settings', array( $this, 'add_field_settings' ), 10, 2 );
+
+		/* Save Dropbox auth token before rendering plugin settings page */
+		add_action( 'admin_init', array( $this, 'save_auth_token' ) );
 
 	}
 
@@ -92,6 +95,9 @@ class GFDropbox extends GFFeedAddOn {
 
 		/* Add AJAX callback for retreiving folder contents */
 		add_action( 'wp_ajax_gfdropbox_folder_contents', array( $this, 'ajax_get_folder_contents' ) );
+
+		/* Add AJAX callback for checking app key/secret validity */
+		add_action( 'wp_ajax_gfdropbox_valid_app_key_secret', array( $this, 'ajax_is_valid_app_key_secret' ) );
 		
 	}
 
@@ -111,9 +117,9 @@ class GFDropbox extends GFFeedAddOn {
 				'version' => '3.0.4',
 			),
 			array(
-				'handle'  => 'gform_dropbox_admin',
+				'handle'  => 'gform_dropbox_formeditor',
 				'deps'    => array( 'jquery', 'gform_dropbox_jstree' ),
-				'src'     => $this->get_base_url() . '/js/admin.js',
+				'src'     => $this->get_base_url() . '/js/form_editor.js',
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -122,9 +128,20 @@ class GFDropbox extends GFFeedAddOn {
 				),
 			),
 			array(
-				'handle'  => 'gform_dropbox_button',
+				'handle'  => 'gform_dropbox_pluginsettings',
 				'deps'    => array( 'jquery' ),
-				'src'     => $this->get_base_url() . '/js/dropbox.js',
+				'src'     => $this->get_base_url() . '/js/plugin_settings.js',
+				'version' => $this->_version,
+				'enqueue' => array(
+					array(
+						'admin_page' => array( 'plugin_settings' )
+					),
+				),
+			),
+			array(
+				'handle'  => 'gform_dropbox_frontend',
+				'deps'    => array( 'jquery' ),
+				'src'     => $this->get_base_url() . '/js/frontend.js',
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -164,6 +181,60 @@ class GFDropbox extends GFFeedAddOn {
 	}
 
 	/**
+	 * Save Dropbox auth token before rendering plugin settings page.
+	 * 
+	 * @access public
+	 * @return void
+	 */
+	public function save_auth_token() {
+		
+		/* Confirm we're on the Dropbox plugin settings page. */
+		if ( rgget( 'page' ) !== 'gf_settings' || rgget( 'subview' ) !== 'gravityformsdropbox' ) {
+			return;
+		}
+		
+		/* If we're not using SSL, redirect. */
+		if ( ! is_ssl() ) {
+			$redirect_url = admin_url( 'admin.php', 'https' );
+			$redirect_url = add_query_arg( array( 'page' => 'gf_settings', 'subview' => 'gravityformsdropbox' ), $redirect_url );
+			wp_redirect( $redirect_url );
+		}
+		
+		/* Start the session. */
+		session_start();
+		
+		/* Save auth token. */
+		if ( rgget( 'state' ) ) {
+			
+			try {
+				
+				/* Get authentication result. */
+				$auth_result = $this->setup_web_auth()->finish( $_GET );
+				
+				/* Save access token. */
+				$settings = $this->get_plugin_settings();
+				$settings['accessToken'] = $auth_result[0];
+				$this->update_plugin_settings( $settings );
+				
+				/* Redirect page. */
+				$redirect_url = admin_url( 'admin.php', 'https' );
+				$redirect_url = add_query_arg( array( 'page' => 'gf_settings', 'subview' => 'gravityformsdropbox' ), $redirect_url );
+				wp_redirect( $redirect_url );
+				
+			} catch ( Exception $e ) {
+				
+				GFCommon::add_error_message( sprintf(
+					esc_html__( 'Unable to authorize with Dropbox: %1$s', 'gravityformsdropbox' ),
+					$e->getMessage()
+				) );
+				
+			}
+			
+		}
+		
+	}
+
+	/**
 	 * Setup plugin settings fields.
 	 * 
 	 * @access public
@@ -171,98 +242,58 @@ class GFDropbox extends GFFeedAddOn {
 	 */
 	public function plugin_settings_fields() {
 
+		$settings = $this->get_plugin_settings();
+
 		return array(
 			array(
-				'title'       => '',
 				'description' => $this->plugin_settings_description(),
 				'fields'      => array(
 					array(
-						'name'                => 'authCode',
-						'label'               => esc_html__( 'Authentication Code', 'gravityformsdropbox' ),
-						'type'                => 'text',
-						'class'               => 'large',
-						'feedback_callback'   => array( $this, 'initialize_api' ),
-						'validation_callback' => array( $this, 'validate_auth_code' )
+						'name'              => 'customAppKey',
+						'label'             => esc_html__( 'App Key', 'gravityformsdropbox' ),
+						'type'              => 'text',
+						'class'             => 'small',
+						'placeholder'       => rgar( $settings, 'defaultAppEnabled' ) == '1' ? $this->get_app_key() : '',
+						'feedback_callback' => array( $this, 'is_valid_app_key_secret' )
 					),
 					array(
-						'name'                => 'accessToken',
-						'label'               => esc_html__( 'Dropbox Access Token', 'gravityformsdropbox' ),
-						'type'                => 'hidden'
-					),
-				),
-			),
-			array(
-				'title'       => esc_html__( 'Custom Dropbox App', 'gravityformsdropbox' ),
-				'description' => $this->custom_app_settings_description(),
-				'fields'      => array(
-					array(
-						'name'    => 'customAppEnable',
-						'label'   => __( 'Enable Custom Dropbox App', 'gravityformsdropbox' ),
-						'type'    => 'checkbox',
-						'onclick' => "jQuery(this).parents('form').submit();",
-						'choices' => array(
-							array(
-								'label' => esc_html__( 'Enable Custom Dropbox App', 'gravityformsdropbox' ),
-								'name'  => 'customAppEnable'
-							)
-						),
+						'name'              => 'customAppSecret',
+						'label'             => esc_html__( 'App Secret', 'gravityformsdropbox' ),
+						'type'              => 'text',
+						'class'             => 'small',
+						'placeholder'       => rgar( $settings, 'defaultAppEnabled' ) == '1' ? $this->get_app_secret() : '',
+						'feedback_callback' => array( $this, 'is_valid_app_key_secret' )
 					),
 					array(
-						'name'       => 'customAppKey',
-						'label'      => esc_html__( 'App Key', 'gravityformsdropbox' ),
-						'type'       => 'text',
-						'class'      => 'medium',
-						'dependency' => array( 'field' => 'customAppEnable', 'values' => array( '1' ) )
+						'name'              => 'authCode',
+						'label'             => esc_html__( 'Authentication Code', 'gravityformsdropbox' ),
+						'type'              => 'auth_code'
 					),
 					array(
-						'name'       => 'customAppSecret',
-						'label'      => esc_html__( 'App Secret', 'gravityformsdropbox' ),
-						'type'       => 'text',
-						'class'      => 'medium',
-						'dependency' => array( 'field' => 'customAppEnable', 'values' => array( '1' ) )
+						'name'              => 'accessToken',
+						'type'              => 'hidden'
+					),
+					array(
+						'name'              => 'defaultAppEnabled',
+						'type'              => 'hidden',
 					),
 				),
 			),
 		);
 		
 	}
-	
-	/**
-	 * Prepare plugin settings description.
-	 * 
-	 * @access public
-	 * @return string $description
-	 */
-	public function plugin_settings_description() {
 		
-		/* If the access token works, return empty string. */
-		if ( $this->initialize_api() ) {
-			return '';
-		}
-		
-		$description  = '<p>' . esc_html__( 'Gravity Forms requires an authentication code to access your Dropbox account. Follow the following steps to acquire an authentication code.', 'gravityformsdropbox' ) . '</p>';
-		$description .= '<ol>';
-		$description .= '<li>' . sprintf( esc_html__( 'Visit %sthis page%s.', 'gravityformsdropbox' ), '<a href="' . $this->setup_web_auth()->start() . '" target="_blank">', '</a>' ) . '</li>';
-		$description .= '<li>' . esc_html__( 'Click "Allow." (You may have to login first.)', 'gravityformsdropbox' ) . '</li>';
-		$description .= '<li>' . esc_html__( 'Enter the authentication code into the field below.', 'gravityformsdropbox' ) . '</li>';
-		$description .= '</ol><br />';
-		
-		return $description;
-		
-	}
-	
 	/**
 	 * Prepare custom app settings settings description.
 	 * 
 	 * @access public
 	 * @return string $description
 	 */
-	public function custom_app_settings_description() {
+	public function plugin_settings_description() {
 		
 		/* Introduction. */
-		$description  = '<p>' . esc_html__( 'Gravity Forms uses a Dropbox App that can only access its own App folder. To access your full Dropbox datastore or use the Dropbox form field, you will need to create your own Dropbox App and enter the credentials below.', 'gravityformsdropbox' ) . '</p>';
+		$description  = '<p>' . esc_html__( 'To use the Gravity Forms Dropbox Add-On, you will need to create your own Dropbox App by following the steps below.', 'gravityformsdropbox' ) . '</p>';
 		
-		$description .= '<p>' . esc_html__( 'To create a custom Dropbox App:', 'gravityformsdropbox' ) . '</p>';		
 		$description .= '<ol>';
 		$description .= '<li>' . sprintf( esc_html__( 'Visit the %sDropbox App Console%s and create a new app.', 'gravityformsdropbox' ), '<a href="https://www.dropbox.com/developers/apps" target="_blank">', '</a>' ) . '</li>';
 		$description .= '<li>' . esc_html__( 'Select "Dropbox API app" as the type of app you want to create.', 'gravityformsdropbox' ) . '</li>';
@@ -270,112 +301,59 @@ class GFDropbox extends GFFeedAddOn {
 		$description .= '<li>' . esc_html__( 'Select "No &mdash; My app needs access to files already on Dropbox" in response to if your app can be limited to its own folder.', 'gravityformsdropbox' ) . '</li>';
 		$description .= '<li>' . esc_html__( 'Select "All file types My app needs access to a user\'s full Dropbox." in response to what type of files your app needs access to.', 'gravityformsdropbox' ) . '</li>';
 		$description .= '<li>' . esc_html__( 'Enter a name and create your app.', 'gravityformsdropbox' ) . '</li>';
-		$description .= '<li>' . sprintf( esc_html__( 'If you are using the Dropbox Upload form field, go into the App Settings and add %s to the Drop-ins domains list.', 'gravityformsdropbox' ), '<strong>' . preg_replace( "(^https?://)", '', get_site_url() ) . '</strong>' ) . '</li>';
+		$description .= '<li>' . sprintf( esc_html__( 'Under App Settings, add %s to the Drop-ins domains list.', 'gravityformsdropbox' ), '<strong>' . preg_replace( "(^https?://)", '', get_site_url() ) . '</strong>' ) . '</li>';
+		$description .= '<li>' . sprintf( esc_html__( 'Under App Settings, add %s to the OAuth 2 Redirect URIs list.', 'gravityformsdropbox' ), '<strong>' . admin_url( 'admin.php?page=gf_settings&subview=gravityformsdropbox', 'https' ) . '</strong>' ) . '</li>';
 		$description .= '</ol>';
-		$description .= '<p>' . esc_html__( 'Any time you enable/disable the Custom Dropbox App settings or change the custom app key/secret, you will have to re-obtain an authentication code.', 'gravityformsdropbox' ) . '</p>';
 
 		return $description;
 		
 	}
 	
 	/**
-	 * Validate Dropbox authentication code and create access token.
+	 * Create Generate Authentication Code settings field.
 	 * 
 	 * @access public
 	 * @param array $field
-	 * @param string $field_setting
-	 * @return void
+	 * @param bool $echo (default: true)
+	 * @return string $html
 	 */
-	public function validate_auth_code( $field, $field_setting ) {
+	public function settings_auth_code( $field, $echo = true ) {
 		
-		/* If field setting is empty, return. */
-		if ( rgblank( $field_setting ) ) {
-			return;
+		/* Get plugin settings. */
+		$settings = $this->get_plugin_settings();
+		
+		if ( ! rgar( $settings, 'accessToken' ) || ( rgar( $settings, 'accessToken' ) && ! $this->initialize_api() ) ) {
+			
+			$html  = sprintf(
+				'<div style="%2$s" id="gform_dropbox_auth_message">%1$s</div>',
+				esc_html__( 'You must provide a valid app key and secret before authenticating with Dropbox.', 'gravityformsdropbox' ),
+				! rgar( $settings, 'customAppKey' ) || ! rgar( $settings, 'customAppSecret' ) ? 'display:block' : 'display:none'
+			);
+			
+			$html .= sprintf(
+				'<a href="%3$s" class="button" id="gform_dropbox_auth_button" style="%2$s">%1$s</a>',
+				esc_html__( 'Click here to authenticate with Dropbox.', 'gravityformsdropbox' ),
+				! rgar( $settings, 'customAppKey' ) || ! rgar( $settings, 'customAppSecret' ) ? 'display:none' : 'display:inline-block',
+				rgar( $settings, 'customAppKey' ) && rgar( $settings, 'customAppSecret' ) ? $this->setup_web_auth()->start() : '#'
+			);
+			
+		} else {
+			
+			$html  = esc_html__( 'Dropbox has been authenticated with your account.', 'gravityformsdropbox' );
+			$html .= "&nbsp;&nbsp;<i class=\"fa icon-check fa-check gf_valid\"></i><br /><br />";
+			$html .= sprintf(
+				' <a href="#" class="button" id="gform_dropbox_deauth_button">%1$s</a>',
+				esc_html__( 'De-Authorize Dropbox', 'gravityformsdropbox' )
+			);
+			
 		}
 		
-		/* Get current settings */
-		$settings = $this->get_posted_settings();
-		
-		/* If the access token is empty, get access token. */
-		if ( rgblank( rgar( $settings, 'accessToken' ) ) ) {
-		
-			$access_token = $this->generate_access_token( $field_setting );
-			
-			if ( rgar( $access_token, 'access_token' ) ) {
-				
-				$this->dropbox_access_token = rgar( $access_token, 'access_token' );
-				return;
-			
-			}
-			
-		}
-		
-	}
-
-	/**
-	 * Save generated Dropbox access token.
-	 * 
-	 * @access public
-	 * @return void
-	 */
-	public function maybe_save_plugin_settings() {
-		
-		global $_gaddon_posted_settings;
-		
-		if ( $this->is_save_postback() ) {
-
-			// store a copy of the previous settings for cases where action whould only happen if value has changed
-			$this->set_previous_settings( $this->get_plugin_settings() );
-			$previous_settings = $this->get_previous_settings();
-			$settings = $this->get_posted_settings();
-			$sections = $this->plugin_settings_fields();
-		
-			/* Check if authentication code and access token should be cleared (if custom app settings change). */
-			$clear_auth = false;
-			$clear_auth = ( ! empty( $previous_settings ) && rgar( $previous_settings, 'customAppEnable' ) != rgar( $settings, 'customAppEnable' ) ) ? true : $clear_auth;
-			$clear_auth = ( rgar( $settings, 'customAppEnable' ) == '1' && rgar( $previous_settings, 'customAppKey' ) != rgar( $settings, 'customAppKey' ) ) ? true : $clear_auth;
-			$clear_auth = ( rgar( $settings, 'customAppEnable' ) == '1' && rgar( $previous_settings, 'customAppSecret' ) != rgar( $settings, 'customAppSecret' ) ) ? true : $clear_auth;
-			
-			/* Clear authentication code and access token if passed test. */
-			if ( $clear_auth ) {
-				
-				$settings['authCode'] = $settings['accessToken'] = $_gaddon_posted_settings['authCode'] = $_gaddon_posted_settings['accessToken'] = '';
-
-			}
-			
-			/* Check if settings are valid. */
-			$is_valid = $this->validate_settings( $sections, $settings );
-			
-			/* If access token is set (via validate_auth_code) save to setting field and create site folder. */
-			if ( isset( $this->dropbox_access_token ) ) {
-				
-				$settings['accessToken'] = $this->dropbox_access_token;
-				$this->initialize_api( $this->dropbox_access_token );
-				
-				/* Only create site folder if using the Gravity Forms Dropbox API key. */
-				if ( $settings['customAppEnable'] != '1' ) {
-					
-					$this->create_site_folder();
-					
-				}
-				
-			}
-			
-			/* If authentication code is being removed, remove the access token setting. */
-			if ( rgblank( $settings['authCode'] ) ) {
-								
-				$settings['accessToken'] = $_gaddon_posted_settings['accessToken'] = '';
-				
-			}
-			
-			if ( $is_valid ) {
-				$this->update_plugin_settings( $settings );
-				GFCommon::add_message( $this->get_save_success_message( $sections ) );
-			} else {
-				GFCommon::add_error_message( $this->get_save_error_message( $sections ) );
-			}
+		if ( $echo ) {
+			echo $html;
 		}
 
+		return $html;
+		
 	}
 
 	/**
@@ -839,13 +817,16 @@ class GFDropbox extends GFFeedAddOn {
 				);
 		
 				/* Execute. */
-				wp_remote_post( admin_url( 'admin-post.php' ), array(
+				$response = wp_remote_post( admin_url( 'admin-post.php' ), array(
 					'timeout'   => 0.01,
 					'blocking'  => false,
 					'sslverify' => apply_filters( 'https_local_ssl_verify', true ),
 					'body'      => $post_request,
 				) );
-				
+
+				if ( is_wp_error( $response ) ) {
+					$this->log_error( __METHOD__ . '(): Aborting. ' . $response->get_error_message() );
+				}
 			}
 			
 		}
@@ -868,7 +849,9 @@ class GFDropbox extends GFFeedAddOn {
 		$nonce = rgpost( '_nonce' );
 		
 		if ( rgpost( 'action' ) == $this->nonce_action && $this->verify_nonce( $nonce ) !== false ) {
-			
+
+			$this->log_debug( __METHOD__ . '(): Nonce verified preparing to process request.' );
+
 			$feed  = $_POST['feed'][0];
 			$entry = $_POST['feed'][1];
 			$form  = GFAPI::get_form( $_POST['feed'][2] );
@@ -923,6 +906,8 @@ class GFDropbox extends GFFeedAddOn {
 			return 2;
 		}
 
+		$this->log_error( __METHOD__ . '(): Aborting. Unable to verify nonce.' );
+
 		/* Invalid nonce. */
 		return false;
 		
@@ -944,7 +929,9 @@ class GFDropbox extends GFFeedAddOn {
 			$this->add_feed_error( esc_html__( 'Feed was not processed because API was not initialized.', 'gravityformsdropbox' ), $feed, $entry, $form );
 			return $entry;
 		}
-		
+
+		$this->log_debug( __METHOD__ . '(): Checking form fields for files to process.' );
+
 		foreach ( $form['fields'] as $field ) {
 
 			$input_type = $field->get_input_type();
@@ -955,7 +942,7 @@ class GFDropbox extends GFFeedAddOn {
 			}
 
 			/* If feed is not uploading all file upload fields or this specifc field, skip it. */
-			if ( rgars( $feed, 'meta/fileUploadField' ) != 'all' && rgars( $feed, 'meta/fileUploadField' ) != $field['id'] ) {
+			if ( rgars( $feed, 'meta/fileUploadField' ) !== 'all' && rgars( $feed, 'meta/fileUploadField' ) != $field->id ) {
 				continue;
 			}
 						
@@ -982,14 +969,15 @@ class GFDropbox extends GFFeedAddOn {
 		global $wpdb, $_gfdropbox_update_entry_fields;
 
 		/* Get field value. */
-		$field_value = $this->get_field_value( $form, $entry, $field->id );
+		$field_value = $entry[ $field->id ];
 
 		/* If field value is empty, return. */
 		if ( rgblank( $field_value ) ) {
+			$this->log_debug( __METHOD__ . '(): Not uploading Dropbox Upload field #' . $field->id . ' because field value is empty.' );
 			return;
 		}
 
-		$this->log_debug( __METHOD__ . '(): Starting.' );
+		$this->log_debug( __METHOD__ . '(): Beginning upload of Dropbox Upload field #' . $field->id . '.' );
 
 		/* Decode field value. */
 		$files = json_decode( stripslashes_deep( $field_value ), true );
@@ -1070,7 +1058,7 @@ class GFDropbox extends GFFeedAddOn {
 		
 		global $_gfdropbox_update_entry_fields, $wpdb;
 
-		$this->log_debug( __METHOD__ . '(): Starting.' );
+		$this->log_debug( __METHOD__ . '(): Beginning upload of file upload field #' . $field->id . '.' );
 
 		/* Handle multiple files separately */
 		if ( $field->multipleFiles ) {
@@ -1181,6 +1169,11 @@ class GFDropbox extends GFFeedAddOn {
 			return true;
 		}
 		
+		/* Load Dropbox library */
+		if ( ! function_exists( '\Dropbox\autoload' ) ) {
+			require_once 'includes/api/autoload.php';
+		}
+
 		/* If access token parameter is null, set to the plugin setting. */
 		$access_token = rgblank( $access_token ) ? $this->get_plugin_setting( 'accessToken' ) : $access_token;		
 
@@ -1225,11 +1218,100 @@ class GFDropbox extends GFFeedAddOn {
 	 * Get Dropbox app key.
 	 * 
 	 * @access public
-	 * @return void
+	 * @return string - Dropbox app key
 	 */
 	public function get_app_key() {
 		
-		return $this->get_plugin_setting( 'customAppKey' ) ? $this->get_plugin_setting( 'customAppKey' ) : $this->dropbox_app_key;
+		/* Get plugin settings. */
+		$settings = $this->get_plugin_settings();
+		
+		return rgar( $settings, 'defaultAppEnabled' ) == '1' ? 'eylx4df4olbnm48' : rgar( $settings, 'customAppKey' );
+		
+	}
+	
+	/**
+	 * Get Dropbox app secret.
+	 * 
+	 * @access public
+	 * @return string - Dropbox app secret
+	 */
+	public function get_app_secret() {
+	
+		/* Get plugin settings. */
+		$settings = $this->get_plugin_settings();
+		
+		return rgar( $settings, 'defaultAppEnabled' ) == '1' ?  '13w3fwg3k504onk' : rgar( $settings, 'customAppSecret' );
+		
+	}
+	
+	/**
+	 * Check if Dropbox app key and secret are valid.
+	 * 
+	 * @access public
+	 * @param string $app_key
+	 * @param string $app_secret
+	 * @return bool If the app key and secret are valid
+	 */
+	public function is_valid_app_key_secret( $app_key = null, $app_secret = null ) {
+		
+		/* If app secret is an array, retrieve the app key and secret from plugin settings. */
+		if ( is_array( $app_secret ) ) {
+			$app_key    = $this->get_app_key();
+			$app_secret = $this->get_app_secret();
+		}
+		
+		/* If app key or secret are empty, return false. */
+		if ( rgblank( $app_key ) || rgblank( $app_secret ) ) {
+			return null;
+		}
+		
+		/* Load Dropbox application info. */
+		$application_info = Dropbox\AppInfo::loadFromJson( array( 'key' => $app_key, 'secret' => $app_secret ) );
+		
+		/* Create a Dropbox web auth instance. */
+		$web_auth = new Dropbox\WebAuthNoRedirect( $application_info, $this->dropbox_client_identifier );
+		
+		/* Get web auth URL. */
+		$auth_url = $web_auth->start();
+		
+		/* Make a request to the web auth URL. */
+		$auth_request = wp_remote_get( $auth_url );
+		
+		/* Return result based on response code. */
+		return $auth_request['response']['code'] == 200;
+		
+	}
+
+	/**
+	 * Validate and save Dropbox app key and secret.
+	 * 
+	 * @access public
+	 * @return void
+	 */
+	public function ajax_is_valid_app_key_secret() {
+		
+		$app_key    = sanitize_text_field( rgget( 'app_key' ) );
+		$app_secret = sanitize_text_field( rgget( 'app_secret' ) );
+		$is_valid   = $this->is_valid_app_key_secret( $app_key, $app_secret );
+		$auth_url   = null;
+		
+		if ( $is_valid ) {
+			
+			$settings = $this->get_plugin_settings();
+			
+			$settings['customAppKey']    = $app_key;
+			$settings['customAppSecret'] = $app_secret;
+			
+			unset( $settings['defaultAppEnabled'] );
+			
+			$this->update_plugin_settings( $settings );
+			
+			$auth_url = $this->setup_web_auth()->start();
+			
+		}
+		
+		echo json_encode( array( 'valid_app_key' => $is_valid, 'auth_url' => $auth_url ) );
+		die();
 		
 	}
 
@@ -1241,18 +1323,17 @@ class GFDropbox extends GFFeedAddOn {
 	 */
 	public function setup_web_auth() {
 
-		/* Get plugin settings */
-		$settings = $this->get_plugin_settings();
-
 		/* Setup API credentials array */
 		$api_credentials = array(
-			'key'    => ( rgar( $settings, 'customAppEnable' ) == '1' && rgar( $settings, 'customAppKey' ) ) ? rgar( $settings, 'customAppKey' ) : $this->dropbox_app_key,
-			'secret' => ( rgar( $settings, 'customAppEnable' ) == '1' && rgar( $settings, 'customAppSecret' ) ) ? rgar( $settings, 'customAppSecret' ) : $this->dropbox_app_secret
+			'key'    => $this->get_app_key(),
+			'secret' => $this->get_app_secret()
 		);
 
 		$application_info = Dropbox\AppInfo::loadFromJson( $api_credentials );
+		$csrf_token_store = new Dropbox\ArrayEntryStore( $_SESSION, 'dropbox-auth-csrf-token' );
+		$redirect_uri     = admin_url( 'admin.php?page=gf_settings&subview=gravityformsdropbox', 'https' );
 		
-		return new Dropbox\WebAuthNoRedirect( $application_info, $this->dropbox_client_identifier );
+		return new Dropbox\WebAuth( $application_info, $this->dropbox_client_identifier, $redirect_uri, $csrf_token_store );
 
 	}
 
@@ -1292,7 +1373,7 @@ class GFDropbox extends GFFeedAddOn {
 		}
 
 	}
-
+	
 	/**
 	 * Get folder contents.
 	 * 
@@ -1328,7 +1409,7 @@ class GFDropbox extends GFFeedAddOn {
 		);
 		
 		/* Set folder name to "Gravity Forms Add-On" if root folder. */
-		if ( end( $folder_metadata['exploded_path'] ) == '' && $this->get_plugin_settings( 'customAppEnable' ) !== '1' ) {
+		if ( end( $folder_metadata['exploded_path'] ) == '' && $this->get_plugin_setting( 'defaultAppEnabled' ) == '1' ) {
 			$folder['text'] = esc_html__( 'Gravity Forms Add-On', 'gravityformsdropbox' );
 		}
 
@@ -1408,31 +1489,29 @@ class GFDropbox extends GFFeedAddOn {
 	 * @return array
 	 */
 	public function save_url( $url, $destination ) {
+				
+		/* Execute request. */
+		$result = wp_remote_post( 'https://api.dropbox.com/1/save_url/auto' . $destination, array(
+			'body'    => array( 'url' => $url ),
+			'headers' => array( 'Authorization' => 'Bearer ' . $this->get_plugin_setting( 'accessToken' ) )
+		) );
 		
-		/* Prepare cURL object. */
-		$curl = curl_init();
-		curl_setopt( $curl, CURLOPT_URL, 'https://api.dropbox.com/1/save_url/auto' . $destination );
-		curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
-		curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $this->get_plugin_setting( 'accessToken' ) ) );
-		curl_setopt( $curl, CURLOPT_POST, true );
-		curl_setopt( $curl, CURLOPT_POSTFIELDS, array( 'url' => $url ) );
-		
-		/* Execute cURL request. */
-		$curl_result = curl_exec( $curl );
-		
-		/* If cuRL request failed, log error. */
-		if ( $curl_result === false ) {
-			
-			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), curl_error( $curl ) ), $feed, $entry, $form );
+		/* If WP_Error, log feed error. */
+		if ( is_wp_error( $result ) ) {
+			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $result->get_error_messages() ), $feed, $entry, $form );
 			return null;
-			
 		}
 		
-		/* Close cURL connection. */
-		curl_close( $curl );
-		
 		/* Decode JSON response. */
-		return json_decode( $curl_result, true );
+		$result = json_decode( $result['body'], true );
+
+		/* If the result is an error, log it. */
+		if ( isset( $result['error'] ) ) {
+			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $result['error'] ), $feed, $entry, $form );
+			return null;
+		}
+
+		return $result;
 		
 	}
 
@@ -1445,28 +1524,27 @@ class GFDropbox extends GFFeedAddOn {
 	 */
 	public function save_url_job( $job_id ) {
 		
-		/* Prepare cURL object. */
-		$curl = curl_init();
-		curl_setopt( $curl, CURLOPT_URL, 'https://api.dropbox.com/1/save_url_job/' . $job_id );
-		curl_setopt( $curl, CURLOPT_RETURNTRANSFER, 1 );
-		curl_setopt( $curl, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $this->get_plugin_setting( 'accessToken' ) ) );
+		/* Execute request. */
+		$result = wp_remote_get( 'https://api.dropbox.com/1/save_url_job/' . $job_id, array(
+			'headers' => array( 'Authorization' => 'Bearer ' . $this->get_plugin_setting( 'accessToken' ) )
+		) );
 		
-		/* Execute cURL request. */
-		$curl_result = curl_exec( $curl );
-		
-		/* If cuRL request failed, log error. */
-		if ( $curl_result === false ) {
-			
-			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), curl_error( $curl ) ), $feed, $entry, $form );
+		/* If WP_Error, log feed error. */
+		if ( is_wp_error( $result ) ) {
+			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $result->get_error_messages() ), $feed, $entry, $form );
 			return null;
-			
 		}
-		
-		/* Close cURL connection. */
-		curl_close( $curl );
-		
+
 		/* Decode JSON response. */
-		return json_decode( $curl_result, true );
+		$result = json_decode( $result['body'], true );
+
+		/* If the result is an error, log it. */
+		if ( isset( $result['error'] ) ) {
+			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $result['error'] ), $feed, $entry, $form );
+			return null;
+		}
+
+		return $result;
 		
 	}
 
@@ -1496,8 +1574,7 @@ class GFDropbox extends GFFeedAddOn {
 
 		/* If the folder path provided is not a folder, return the current file url. */
 		if ( ! rgblank( $destination_folder ) && ! rgar( $destination_folder, 'is_dir' ) ) {
-			$this->log_debug( __METHOD__ . '(): Folder issue; Aborting.' );
-
+			$this->log_error( __METHOD__ . '(): Unable to upload file because destination is not a folder.' );
 			return rgar( $file, 'url' );
 		}
 
@@ -1511,8 +1588,7 @@ class GFDropbox extends GFFeedAddOn {
 				
 			} catch ( Exception $e ) {
 
-				$this->log_debug( __METHOD__ . '(): Folder issue; Aborting.' );
-
+				$this->log_error( __METHOD__ . '(): Unable to upload file because destination folder could not be created.' );
 				return $file['url'];
 				
 			}
@@ -1578,6 +1654,32 @@ class GFDropbox extends GFFeedAddOn {
 		
 		return $new_files;
 		
+	}
+
+	/**
+	 * Checks if a previous version was installed and enable default app flag if no custom app was used.
+	 * 
+	 * @access public
+	 * @param string $previous_version The version number of the previously installed version.
+	 */
+	public function upgrade( $previous_version ) {
+
+		$previous_is_pre_custom_app_only = ! empty( $previous_version ) && version_compare( $previous_version, '1.0.6', '<' );
+
+		if ( $previous_is_pre_custom_app_only ) {
+
+			$settings = $this->get_plugin_settings();
+			
+			if ( ! rgar( $settings, 'customAppEnable' ) && $this->initialize_api() ) {
+				$settings['defaultAppEnabled'] = '1';
+			}
+			
+			unset( $settings['customAppEnable'] );
+
+			$this->update_plugin_settings( $settings );
+
+		}
+
 	}
 
 }
