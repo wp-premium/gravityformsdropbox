@@ -5,7 +5,7 @@ GFForms::include_feed_addon_framework();
 class GFDropbox extends GFFeedAddOn {
 
 	protected $_version = GF_DROPBOX_VERSION;
-	protected $_min_gravityforms_version = '1.9.12.17';
+	protected $_min_gravityforms_version = '1.9.14.26';
 	protected $_slug = 'gravityformsdropbox';
 	protected $_path = 'gravityformsdropbox/dropbox.php';
 	protected $_full_path = __FILE__;
@@ -67,19 +67,23 @@ class GFDropbox extends GFFeedAddOn {
 		/* Setup page title. */
 		$html = sprintf( '<h3><span>%s %s</span></h3>', $icon, $this->plugin_settings_title() );
 		
+		if ( ! function_exists( 'openssl_random_pseudo_bytes' ) && ! function_exists( 'mcrypt_create_iv' ) ) {
+			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires either the "openssl_random_pseudo_bytes" or "mcrypt_create_iv" PHP function to be available. To continue using this Add-On, please configure your PHP installation to support one of those functions.', 'gravityformsdropbox' ) . '</p>';
+		}
+
 		if ( PHP_INT_MAX !== 9223372036854775807 ) {
 			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires a version of PHP that supports 64-bit integers. To continue using this Add-On, please upgrade PHP to a version that supports 64-bit integers.', 'gravityformsdropbox' ) . '</p>';
 		}
 		
-		if ( version_compare( PHP_VERSION, '5.3.0', '<' ) ) {
-			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires PHP 5.3 or greater to run. To continue using this Add-On, please upgrade PHP.', 'gravityformsdropbox' ) . '</p>';		
+		if ( version_compare( PHP_VERSION, '5.3.4', '<' ) ) {
+			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires PHP 5.3.4 or greater to run. To continue using this Add-On, please upgrade PHP.', 'gravityformsdropbox' ) . '</p>';		
 		}
 		
 		$ssl_support = get_option( 'gravityformsaddon_gravityformsdropbox_ssl', null );	
 		if ( $ssl_support != '1' ) {
 			$html .= '<p>' . esc_html__( 'Gravity Forms Dropbox Add-On requires SSL to run. To continue using this Add-On, please install an SSL certificate.', 'gravityformsdropbox' ) . '</p>';		
 			$html .= '<p>' . sprintf(
-				esc_html__( 'Once you have installed an SSL certificate, %1$sclick here to active the Add-On%2$s.', 'gravityformsdropbox' ),
+				esc_html__( 'Once you have installed an SSL certificate, %1$sclick here to activate the Add-On%2$s.', 'gravityformsdropbox' ),
 				'<a href="' . add_query_arg( 'gfdropboxsslreset', '1' ) . '">', '</a>' )
 			. '</p>';		
 		}
