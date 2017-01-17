@@ -8,6 +8,11 @@ window.GFDropboxSettings = null;
 
 		this.init = function() {
 			
+			this.initialValues = {
+				appKey:    this.getAppKey(),
+				appSecret: this.getAppSecret()
+			};
+			
 			this.bindAppKeyUpdate();
 			
 			this.bindDeauthorize();
@@ -39,6 +44,10 @@ window.GFDropboxSettings = null;
 		}
 		
 		this.checkAppKeyValidity = function() {
+			
+			if ( GFDropboxSettingsObj.getAppKey() === GFDropboxSettingsObj.initialValues.appKey && GFDropboxSettingsObj.getAppSecret() === GFDropboxSettingsObj.initialValues.appSecret ) {
+				return;
+			}
 			
 			GFDropboxSettingsObj.lockAppKeyFields( true );
 			GFDropboxSettingsObj.resetAppKeyStatus();
@@ -89,7 +98,7 @@ window.GFDropboxSettings = null;
 			if ( valid === true ) {
 				$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).addClass( 'icon-check fa-check gf_valid' );
 				$( '#gform_dropbox_auth_message' ).hide();
-				$( '#gform_dropbox_auth_button' ).attr( 'href', auth_url ).show();
+				location.reload();
 			}
 			
 			if ( valid === false ) {
