@@ -1,119 +1,174 @@
 window.GFDropboxSettings = null;
 
 ( function( $ ) {
-	
+
 	GFDropboxSettings = function () {
-		
-		var GFDropboxSettingsObj = this;
+
+		var self = this;
 
 		this.init = function() {
-			
+
 			this.initialValues = {
 				appKey:    this.getAppKey(),
 				appSecret: this.getAppSecret()
 			};
 			
+			this.pageURL = gform_dropbox_pluginsettings_strings.settings_url;
+
 			this.bindAppKeyUpdate();
-			
+
 			this.bindDeauthorize();
 			
+			this.bindDisableCustomApp();
+			
+			this.bindEnableCustomApp();
+
 			this.setupValidationIcons();
-			
-			$( '#gform-settings-save' ).hide();
-			
+
+			// Hide save plugin settings button.
+			$( '#tab_gravityformsdropbox #gform-settings-save' ).hide();
+
 		}
-		
+
 		this.bindAppKeyUpdate = function() {
-			
+
 			$( 'input#customAppKey, input#customAppSecret' ).on( 'blur', this.checkAppKeyValidity );
-			
+
 		}
-		
+
 		this.bindDeauthorize = function() {
-			
-			$( '#gform_dropbox_deauth_button' ).on( 'click', function( e ) {
-				
+
+			// De-Authorize Dropbox.
+			$( '#gform_dropbox_deauth_button' ).on( 'click', function( e ){
+
+				// Prevent default event.
 				e.preventDefault();
-				
-				$( 'input[name="_gaddon_setting_accessToken"], input[name="_gaddon_setting_defaultAppEnabled"]' ).val( '' );
-				
-				$( '#gform-settings-save' ).trigger( 'click' );
-				
+
+				// Set disabled state.
+				$( this ).attr( 'disabled', 'disabled' );
+
+				// De-Authorize.
+				$.ajax( {
+					async:     false,
+					url:       ajaxurl,
+					dataType: 'json',
+					data:     { action: 'gfdropbox_deauthorize' },
+					success:  function( response ) {
+
+						if ( response.success ) {
+							window.location.href = self.pageURL;
+						} else {
+							alert( response.data.message );
+						}
+
+						$( this ).removeAttr( 'disabled' );
+
+					}
+				} );
+
 			} );
-			
+
 		}
-		
+
+		this.bindDisableCustomApp = function() {
+
+			$( '#gform_dropbox_disable_customApp' ).on( 'click', function( e ) {
+
+				// Prevent default event.
+				e.preventDefault();
+
+				// Set custom app value.
+				$( 'input#customAppEnable' ).val( '' );
+
+				// Submit form.
+				$( '#gform-settings-save' ).trigger( 'click' );
+
+			} );
+
+		}
+
+		this.bindEnableCustomApp = function() {
+
+			$( '#gform_dropbox_enable_customApp' ).on( 'click', function( e ) {
+
+				// Prevent default event.
+				e.preventDefault();
+
+				// Set custom app value.
+				$( 'input#customAppEnable' ).val( '1' );
+
+				// Submit form.
+				$( '#gform-settings-save' ).trigger( 'click' );
+
+			} );
+
+		}
+
 		this.checkAppKeyValidity = function() {
-			
-			if ( GFDropboxSettingsObj.getAppKey() === GFDropboxSettingsObj.initialValues.appKey && GFDropboxSettingsObj.getAppSecret() === GFDropboxSettingsObj.initialValues.appSecret ) {
-				return;
-			}
-			
-			GFDropboxSettingsObj.lockAppKeyFields( true );
-			GFDropboxSettingsObj.resetAppKeyStatus();
-			
+
+			self.lockAppKeyFields( true );
+			self.resetAppKeyStatus();
+
 			$.ajax( {
 				'url':      ajaxurl,
 				'dataType': 'json',
 				'type':     'GET',
 				'data':     {
 					'action':     'gfdropbox_valid_app_key_secret',
-					'app_key':    GFDropboxSettingsObj.getAppKey(),
-					'app_secret': GFDropboxSettingsObj.getAppSecret()
+					'app_key':    self.getAppKey(),
+					'app_secret': self.getAppSecret()
 				},
 				'success':  function( result ) {
-					GFDropboxSettingsObj.setAppKeyStatus( result.valid_app_key, result.auth_url );
-					GFDropboxSettingsObj.lockAppKeyFields( false );			
+					self.setAppKeyStatus( result.valid_app_key, result.auth_url );
+					self.lockAppKeyFields( false );
 				}
 			} );
-			
+
 		}
-		
+
 		this.getAppKey = function() {
-			
+
 			return $( 'input#customAppKey' ).val();
-			
+
 		}
-		
+
 		this.getAppSecret = function() {
-			
+
 			return $( 'input#customAppSecret' ).val();
-			
+
 		}
-		
+
 		this.lockAppKeyFields = function( locked ) {
-			
+
 			$( 'input#customAppKey, input#customAppSecret' ).prop( 'disabled', locked );
-			
+
 		}
-		
+
 		this.resetAppKeyStatus = function() {
-			
+
  			$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).removeClass( 'icon-check icon-remove fa-check fa-times gf_valid gf_invalid' );
-	
+
 		}
-		
+
 		this.setAppKeyStatus = function( valid, auth_url ) {
-		
+
 			if ( valid === true ) {
-				$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).addClass( 'icon-check fa-check gf_valid' );
-				$( '#gform_dropbox_auth_message' ).hide();
-				location.reload();
+				window.location.href = self.pageURL;
 			}
-			
+
 			if ( valid === false ) {
 				$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).addClass( 'icon-remove fa-times gf_invalid' );
 			}
-			
+
 			if ( valid === false || valid === null ) {
 				$( '#gform_dropbox_auth_message' ).show();
 				$( '#gform_dropbox_auth_button' ).hide();
 			}
-			
+
 		}
-		
+
 		this.setupValidationIcons = function() {
-			
+
 			if ( $( '#gaddon-setting-row-customAppKey .fa' ).length == 0 ) {
 				$( ' <i class="fa"></i>' ).insertAfter( $( '#customAppKey') );
 			}
@@ -121,13 +176,13 @@ window.GFDropboxSettings = null;
 			if ( $( '#gaddon-setting-row-customAppSecret .fa' ).length == 0 ) {
 				$( '<i class="fa"></i>' ).insertAfter( $( '#customAppSecret') );
 			}
-			
+
 		}
-		
+
 		this.init();
-		
+
 	}
-	
+
 	$( document ).ready( GFDropboxSettings );
-	
+
 } )( jQuery );

@@ -5,8 +5,9 @@ window.GFDropbox = null;
 	GFDropbox = function ( args ) {
 		
 		for ( var prop in args ) {
-			if ( args.hasOwnProperty( prop ) )
+			if ( args.hasOwnProperty( prop ) ) {
 				this[prop] = args[prop];
+			}
 		}
 		
 		var GFDropboxObj = this;
