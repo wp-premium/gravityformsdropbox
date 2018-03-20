@@ -38,7 +38,12 @@ window.GFDropbox = null;
 		this.getFieldValue = function() {
 			
 			var value = $( '#input_' + this.formId + '_' + this.inputId ).val();
-			return value ? $.parseJSON( value ) : [];
+			try{
+				value = value ? $.parseJSON( value ) : [];
+			}catch(e){
+				value = [];
+			}
+			return value ;
 			
 		}
 		
