@@ -231,7 +231,7 @@ class GF_Dropbox extends GFFeedAddOn {
 		if ( $this->is_gravityforms_supported() ) {
 
 			// Initialize autoloader.
-			require_once 'vendor/autoload.php';
+			require_once 'includes/autoload.php';
 
 			// If custom app is enabled, load Dropbox field class.
 			if ( $this->get_plugin_setting( 'customAppEnable' ) ) {
@@ -819,34 +819,37 @@ class GF_Dropbox extends GFFeedAddOn {
 				'title'  => '',
 				'fields' => array(
 					array(
-						'name'           => 'feedName',
-						'type'           => 'text',
-						'required'       => true,
-						'label'          => esc_html__( 'Name', 'gravityformsdropbox' ),
-						'tooltip'        => sprintf(
+						'name'          => 'feedName',
+						'type'          => 'text',
+						'required'      => true,
+						'label'         => esc_html__( 'Name', 'gravityformsdropbox' ),
+						'save_callback' => array( $this, 'sanitize_settings_value' ),
+						'tooltip'       => sprintf(
 							'<h6>%s</h6>%s',
 							esc_html__( 'Name', 'gravityformsdropbox' ),
 							esc_html__( 'Enter a feed name to uniquely identify this setup.', 'gravityformsdropbox' )
 						),
 					),
 					array(
-						'name'           => 'fileUploadField',
-						'type'           => 'select',
-						'required'       => true,
-						'label'          => esc_html__( 'File Upload Field', 'gravityformsdropbox' ),
-						'choices'        => $this->get_file_upload_field_choices(),
-						'tooltip'        => sprintf(
+						'name'          => 'fileUploadField',
+						'type'          => 'select',
+						'required'      => true,
+						'label'         => esc_html__( 'File Upload Field', 'gravityformsdropbox' ),
+						'choices'       => $this->get_file_upload_field_choices(),
+						'save_callback' => array( $this, 'sanitize_settings_value' ),
+						'tooltip'       => sprintf(
 							'<h6>%s</h6>%s',
 							esc_html__( 'File Upload Field', 'gravityformsdropbox' ),
 							esc_html__( 'Select the specific File Upload field that you want to be uploaded to Dropbox.', 'gravityformsdropbox' )
 						),
 					),
 					array(
-						'name'           => 'destinationFolder',
-						'type'           => 'folder',
-						'required'       => true,
-						'label'          => esc_html__( 'Destination Folder', 'gravityformsdropbox' ),
-						'tooltip'        => sprintf(
+						'name'          => 'destinationFolder',
+						'type'          => 'folder',
+						'required'      => true,
+						'label'         => esc_html__( 'Destination Folder', 'gravityformsdropbox' ),
+						'save_callback' => array( $this, 'sanitize_settings_value' ),
+						'tooltip'       => sprintf(
 							'<h6>%s</h6>%s<br /><br />%s',
 							esc_html__( 'Destination Folder', 'gravityformsdropbox' ),
 							esc_html__( 'Select the folder in your Dropbox account where the files will be uploaded to.', 'gravityformsdropbox' ),
@@ -863,6 +866,23 @@ class GF_Dropbox extends GFFeedAddOn {
 				),
 			),
 		);
+
+	}
+
+	/**
+	 * Sanitize feed settings field value on save.
+	 *
+	 * @since  2.0.6
+	 * @access public
+	 *
+	 * @param array  $field       Settings field properties.
+	 * @param string $field_value Field value.
+	 *
+	 * @return string
+	 */
+	public function sanitize_settings_value( $field, $field_value ) {
+
+		return sanitize_text_field( $field_value );
 
 	}
 
@@ -901,12 +921,12 @@ class GF_Dropbox extends GFFeedAddOn {
 		}
 
 		// Prepare options.
-		$options = array( 'initialPath' => $value );
+		$options = array( 'initialPath' => esc_js( $value ) );
 
 		// Initialize destination folder script.
 		$html .= sprintf(
 			'<script type="text/javascript">new GFDropboxFolder(\'%1$s\');</script>',
-			json_encode( $options )
+			wp_json_encode( $options )
 		);
 
 		if ( $echo ) {
@@ -1960,8 +1980,26 @@ class GF_Dropbox extends GFFeedAddOn {
 		// Create public link.
 		try {
 
+			/**
+			 * Modify the shareable link settings before the shareable link is generated.
+			 * (If "requested_visibility" is set to "password", "link_password" should be defined.)
+			 *
+			 * @since 2.0.5
+			 *
+			 * @param array  $shareable_link_settings Sharable link settings.
+			 * @param string $field_id                The ID of the field currently being processed.
+			 * @param array  $form                    Form object.
+			 * @param array  $entry                   Entry object.
+			 * @param array  $feed                    Feed object.
+			 */
+			$shareable_link_settings = gf_apply_filters( array(
+				'gform_dropbox_shareable_link_settings',
+				$form['id'],
+				$field_id,
+			), array( 'requested_visibility' => 'public' ), $field_id, $form, $entry, $feed );
+
 			// Prepare request parameters.
-			$request_params = array( 'path' => $dropbox_file->getPathDisplay() );
+			$request_params = array( 'path' => $dropbox_file->getPathDisplay(), 'settings' => $shareable_link_settings );
 
 			// Execute request.
 			$shareable_link = $this->api->postToAPI( '/sharing/create_shared_link_with_settings', $request_params );
