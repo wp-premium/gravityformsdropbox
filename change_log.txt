@@ -1,3 +1,12 @@
+# 2.1 | 2018-03-21
+   - Added security enhancements.
+   - Added "gform_dropbox_shareable_link_settings" filter to modify settings when generating a shareable Dropbox link.
+   - Added GPL to plugin header.
+   - Updated Plugin URI and Auth or URI to use https.
+   - Updated included version of Dropbox PHP SDK.
+   - Fixed Dropbox PHP SDK not being included in the 2.0.1 build.
+   - Fixed the file extensions list used to initialize the Dropbox Chooser.
+
 # 2.0 | 2017-06-16
    - Added minimum requirements needed to use Dropbox Add-On.
    - Updated Dropbox API calls to use latest version of Dropbox API.
