@@ -162,7 +162,6 @@ class GF_Field_Dropbox extends GF_Field {
 	 *
 	 * @param array $form Form object.
 	 *
-	 * @uses GFCommon::clean_extensions()
 	 * @uses GFCommon::get_base_url()
 	 *
 	 * @return string
@@ -172,7 +171,7 @@ class GF_Field_Dropbox extends GF_Field {
 		$options = array(
 			'deleteImage' => GFCommon::get_base_url() . '/images/delete.png',
 			'deleteText'  => esc_attr__( 'Delete file', 'gravityforms' ),
-			'extensions'  => ! empty( $this->allowedExtensions ) ? GFCommon::clean_extensions( explode( ',', strtolower( $this->allowedExtensions ) ) ) : array(),
+			'extensions'  => $this->get_extensions(),
 			'formId'      => $form['id'],
 			'inputId'     => $this->id,
 			'linkType'    => gf_apply_filters( 'gform_dropbox_link_type', array( $form['id'], $this->id ), 'preview', $form, $this->id ),
@@ -183,6 +182,21 @@ class GF_Field_Dropbox extends GF_Field {
 
 		return $script;
 
+	}
+
+	/**
+	 * Retrieve the array of file extensions to be used by the chooser init script.
+	 *
+	 * @since 2.0.1
+	 *
+	 * @return array
+	 */
+	public function get_extensions() {
+		if ( empty( $this->allowedExtensions ) ) {
+			return array();
+		}
+
+		return array_map( 'trim', explode( ',', strtolower( $this->allowedExtensions ) ) );
 	}
 
 	/**
