@@ -1,0 +1,9 @@
+{
+    "name": "wp-premium/gravityformsdropbox",
+    "type": "wordpress-plugin",
+    "autoload": {
+        "classmap": [
+            "."
+        ]
+    }
+}
