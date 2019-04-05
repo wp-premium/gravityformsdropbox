@@ -59,7 +59,7 @@ class GF_Field_Dropbox extends GF_Field {
 			);
 		}
 
-		$logic_event = ! $is_form_editor && ! $is_entry_detail ? $this->get_conditional_logic_event( 'keyup' ) : '';
+		$logic_event = version_compare( GFForms::$version, '2.4-beta-1', '<' ) ? $this->get_conditional_logic_event( 'keyup' ) : '';
 		$id          = (int) $this->id;
 		$field_id    = $is_entry_detail || $is_form_editor || 0 === $form_id ? "input_$id" : 'input_' . $form_id . "_$id";
 		$value       = esc_attr( $value );
@@ -168,13 +168,16 @@ class GF_Field_Dropbox extends GF_Field {
 	 */
 	public function get_form_inline_script_on_page_render( $form ) {
 
+		// Get link type.
+		$link_type = $this->linkType ? $this->linkType : 'preview';
+
 		$options = array(
 			'deleteImage' => GFCommon::get_base_url() . '/images/delete.png',
 			'deleteText'  => esc_attr__( 'Delete file', 'gravityforms' ),
 			'extensions'  => $this->get_extensions(),
 			'formId'      => $form['id'],
 			'inputId'     => $this->id,
-			'linkType'    => gf_apply_filters( 'gform_dropbox_link_type', array( $form['id'], $this->id ), 'preview', $form, $this->id ),
+			'linkType'    => gf_apply_filters( array( 'gform_dropbox_link_type', $form['id'], $this->id ), $link_type, $form, $this->id ),
 			'multiselect' => $this->multiselect,
 		);
 

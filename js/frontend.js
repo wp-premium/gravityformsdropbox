@@ -34,12 +34,17 @@ window.GFDropbox = null;
 			$( '#field_' + this.formId + '_' + this.inputId + ' .ginput_container' ).append( button );
 			
 		}
-		
+
 		this.getFieldValue = function() {
-			
+
 			var value = $( '#input_' + this.formId + '_' + this.inputId ).val();
-			return value ? $.parseJSON( value ) : [];
-			
+
+			try {
+				return value ? JSON.parse( value ) : [];
+			} catch ( e ) {
+				return [];
+			}
+
 		}
 		
 		this.getFileName = function( path ) {
