@@ -147,7 +147,7 @@ class GF_Dropbox extends GFFeedAddOn {
 	 *
 	 * @since  1.0
 	 * @access protected
-	 * @var    object $api If available, contains an instance of the Dropbox API library.
+	 * @var    DropboxAPI $api If available, contains an instance of the Dropbox API library.
 	 */
 	protected $api = null;
 
@@ -298,6 +298,9 @@ class GF_Dropbox extends GFFeedAddOn {
 		parent::init_admin();
 
 		add_action( 'admin_init', array( $this, 'start_session' ) );
+
+		add_action( 'gform_field_standard_settings', array( $this, 'add_field_settings' ), 10, 2 );
+		add_action( 'gform_editor_js', array( $this, 'add_field_settings_js' ) );
 
 	}
 
@@ -474,6 +477,36 @@ class GF_Dropbox extends GFFeedAddOn {
 
 			// Save plugin settings.
 			$this->update_plugin_settings( $settings );
+
+			// Initialize API.
+			if ( $this->initialize_api( $settings['accessToken'] ) ) {
+
+				// Get default folder path.
+				$site_url    = parse_url( get_option( 'home' ) );
+				$folder_path = '/' . rgar( $site_url, 'host' );
+
+				try {
+
+					// Check for default folder.
+					$folder_metadata = $this->api->getMetadata( $folder_path );
+
+				} catch ( \Exception $e ) {
+
+					try {
+
+						// Create folder.
+						$folder = $this->api->createFolder( $folder_path );
+
+					} catch ( \Exception $e ) {
+
+						// Log that default folder could not be created.
+						$this->log_error( __METHOD__ . '(): Unable to create default folder (' . $folder_path . '); ' . $e->getMessage() );
+
+					}
+
+				}
+
+			}
 
 		}
 
@@ -821,6 +854,7 @@ class GF_Dropbox extends GFFeedAddOn {
 					array(
 						'name'          => 'feedName',
 						'type'          => 'text',
+						'class'         => 'medium',
 						'required'      => true,
 						'label'         => esc_html__( 'Name', 'gravityformsdropbox' ),
 						'save_callback' => array( $this, 'sanitize_settings_value' ),
@@ -925,7 +959,7 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		// Initialize destination folder script.
 		$html .= sprintf(
-			'<script type="text/javascript">new GFDropboxFolder(\'%1$s\');</script>',
+			'<script type="text/javascript">new GFDropboxFolder(%1$s);</script>',
 			wp_json_encode( $options )
 		);
 
@@ -1315,6 +1349,72 @@ class GF_Dropbox extends GFFeedAddOn {
 		}
 
 		return $form;
+
+	}
+
+
+
+
+
+	// # FORM EDITOR ---------------------------------------------------------------------------------------------------
+
+	/**
+	 * Add settings fields for Dropbox field.
+	 *
+	 * @since  1.0
+	 * @access public
+	 *
+	 * @param int $position The position that the settings should be displayed.
+	 * @param int $form_id  The ID of the form being edited.
+	 */
+	public function add_field_settings( $position, $form_id ) {
+
+		if ( 20 !== $position ) {
+			return;
+		}
+
+		?>
+
+		<li class="link_type_setting field_setting">
+			<label class="section_label"><?php esc_html_e( 'Link Type', 'gravityformsdropbox' ); ?></label>
+			<div>
+				<input type="radio" name="link_type" id="field_link_type_preview" size="10" onclick="SetFieldProperty( 'linkType', 'preview' );" />
+				<label for="field_link_type_preview" class="inline"><?php esc_html_e( 'Preview', 'gravityformsdropbox' ); ?></label>
+				&nbsp;&nbsp;
+				<input type="radio" name="link_type" id="field_link_type_direct" size="10" onclick="SetFieldProperty( 'linkType', 'direct' );" />
+				<label for="field_link_type_direct" class="inline"><?php esc_html_e( 'Direct', 'gravityformsdropbox' ); ?></label>
+			</div>
+		</li>
+
+		<li class="multiselect_setting field_setting">
+			<input type="checkbox" id="field_multiselect" onclick="SetFieldProperty( 'multiselect', this.checked );" />
+			<label for="field_multiselect" class="inline"><?php esc_html_e( 'Allow multiple files to be selected', 'gravityformsdropbox' ); ?></label>
+			<br class="clear" />
+		</li>
+
+		<?php
+
+	}
+
+	/**
+	 * Add Javascript for Dropbox field settings.
+	 *
+	 * @since  1.0
+	 * @access public
+	 */
+	public function add_field_settings_js() {
+
+		?>
+
+		<script type="text/javascript">
+			jQuery( document ).bind( 'gform_load_field_settings', function ( e, field, form ) {
+				jQuery( '#field_link_type_preview' ).attr( 'checked', 'preview' === field[ 'linkType' ] );
+				jQuery( '#field_link_type_direct' ).attr( 'checked', 'direct' === field[ 'linkType' ] );
+				jQuery( '#field_multiselect' ).attr( 'checked', true === field[ 'multiselect' ] );
+			} );
+		</script>
+
+		<?php
 
 	}
 
@@ -1746,14 +1846,14 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * @since  1.0
 	 * @access public
 	 *
-	 * @param array $field Field object.
-	 * @param array $feed  Feed object.
-	 * @param array $entry Entry object.
-	 * @param array $form  Form object.
+	 * @param GF_Field_FileUpload $field Field object.
+	 * @param array               $feed  Feed object.
+	 * @param array               $entry Entry object.
+	 * @param array               $form  Form object.
 	 *
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAPI::update_entry_field()
-	 * @uses GF_Dropbox::upload_file()
+	 * @uses   GFAddOn::log_debug()
+	 * @uses   GFAPI::update_entry_field()
+	 * @uses   GF_Dropbox::upload_file()
 	 */
 	public function process_fileupload_fields( $field, $feed, $entry, $form ) {
 
@@ -1770,6 +1870,10 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		}
 
+		// Get upload path and URL.
+		$upload_dir = GFFormsModel::get_upload_root();
+		$upload_url = GFFormsModel::get_upload_url_root();
+
 		// Log beginning of file upload for field.
 		$this->log_debug( __METHOD__ . '(): Beginning upload of file upload field #' . $field->id . '.' );
 
@@ -1785,7 +1889,7 @@ class GF_Dropbox extends GFFeedAddOn {
 				// Prepare file info.
 				$file_info = array(
 					'name'        => basename( $file ),
-					'path'        => str_replace( WP_CONTENT_URL, WP_CONTENT_DIR, $file ),
+					'path'        => str_replace( $upload_url, $upload_dir, $file ),
 					'url'         => $file,
 					'destination' => rgars( $feed, 'meta/destinationFolder' ),
 				);
@@ -1803,10 +1907,12 @@ class GF_Dropbox extends GFFeedAddOn {
 			// Prepare file info.
 			$file_info = array(
 				'name'        => basename( $field_value ),
-				'path'        => str_replace( WP_CONTENT_URL, WP_CONTENT_DIR, $field_value ),
+				'path'        => str_replace( $upload_url, $upload_dir, $field_value ),
 				'url'         => $field_value,
 				'destination' => rgars( $feed, 'meta/destinationFolder' ),
 			);
+
+			$this->log_debug( __METHOD__ . '(): File info: ' . print_r( $file_info, true ) );
 
 			// Upload file.
 			$file_for_lead = gf_dropbox()->upload_file( $file_info, $form, $field->id, $entry, $feed );
@@ -2009,11 +2115,33 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		} catch ( \Exception $e ) {
 
-			// Log that we could not create a public link.
-			$this->add_feed_error( sprintf( esc_html__( 'Unable to create shareable link for file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
+			try {
 
-			// Return original file url.
-			return rgar( $file, 'url' );
+				// Prepare request parameters.
+				$request_params = array( 'path' => $dropbox_file->getPathDisplay(), 'direct_only' => true );
+
+				// Execute request.
+				$shareable_links = $this->api->postToAPI( '/sharing/list_shared_links', $request_params );
+
+				// Get existing sharable links.
+				$links = $shareable_links->getDecodedBody()['links'];
+
+				// If links were found, return first link.
+				if ( ! empty( $links ) ) {
+					return $links[0]['url'];
+				} else {
+					return rgar( $file, 'url' );
+				}
+
+			} catch ( \Exception $f ) {
+
+				// Log that we could not create a public link.
+				$this->add_feed_error( sprintf( esc_html__( 'Unable to create shareable link for file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
+
+				// Return original file url.
+				return rgar( $file, 'url' );
+
+			}
 
 		}
 
@@ -2428,24 +2556,35 @@ class GF_Dropbox extends GFFeedAddOn {
 		// Initialize folder path variable.
 		$folder_path = null;
 
-		// Try and get requested folder.
-		try {
+		// If path is not set, use root folder.
+		if ( empty( $path ) || '/' === $path ) {
 
-			// Get folder metadata.
-			$folder_metadata = $this->api->getMetadata( $path );
-
-			// Set folder path and exploded path.
-			$folder_path          = $folder_metadata->getPathLower();
-			$exploded_folder_path = explode( '/', $folder_metadata->getPathDisplay() );
-
-		} catch ( \Exception $e ) {
-
-			// Log that folder could not be found.
-			$this->log_error( __METHOD__ . '(): Unable to get contents of folder (' . $path . ') because folder could not be found.' );
-
-			// If folder was not found, set folder path to root folder.
-			$folder_path = '/';
+			// Set folder path, exploded folder path variables.
+			$folder_path          = '/';
 			$exploded_folder_path = array( '' );
+
+		} else {
+
+			// Try and get requested folder.
+			try {
+
+				// Get folder metadata.
+				$folder_metadata = $this->api->getMetadata( $path );
+
+				// Set folder path and exploded path.
+				$folder_path          = $folder_metadata->getPathLower();
+				$exploded_folder_path = explode( '/', $folder_metadata->getPathDisplay() );
+
+			} catch ( \Exception $e ) {
+
+				// Log that folder could not be found.
+				$this->log_error( __METHOD__ . '(): Unable to get contents of folder (' . $path . ') because folder could not be found.' );
+
+				// If folder was not found, set folder path to root folder.
+				$folder_path          = '/';
+				$exploded_folder_path = array( '' );
+
+			}
 
 		}
 

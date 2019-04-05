@@ -45,7 +45,7 @@ window.GFDropboxFolder = null;
 			 				return {
 				 				'action':     'gfdropbox_folder_contents',
 				 				'first_load': self.firstLoad,
-				 				'path':       '#' === node.id ? self.folderPath : node.id
+				 				'path':       '#' === node.id ? self.initialPath : node.id
 				 			};
 			 			},
 			 			'success':  function () {
