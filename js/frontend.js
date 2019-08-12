@@ -31,13 +31,13 @@ window.GFDropbox = null;
 				success:     this.uploadHandler
 			} );
 			
-			$( '#field_' + this.formId + '_' + this.inputId + ' .ginput_container' ).append( button );
+			document.querySelector( '#field_' + this.formId + '_' + this.inputId + ' .ginput_container' ).appendChild( button );
 			
 		}
 
 		this.getFieldValue = function() {
 
-			var value = $( '#input_' + this.formId + '_' + this.inputId ).val();
+			var value = document.getElementById( 'input_' + this.formId + '_' + this.inputId ).value || [];
 
 			try {
 				return value ? JSON.parse( value ) : [];
@@ -55,23 +55,23 @@ window.GFDropbox = null;
 
 		this.refreshPreview = function() {
 			
-			var preview = $( '#gform_preview_' + this.formId + '_' + this.inputId ),
-				files = GFDropboxObj.getFieldValue();
+			var preview = document.getElementById( 'gform_preview_' + this.formId + '_' + this.inputId ),
+				files   = GFDropboxObj.getFieldValue();
 				
-			/* Clean existing preview. */
-			preview.html( '' );
+			// Remove existing preview.
+			preview.innerHTML = '';
 			
-			/* Loop through each file and add it to the preview. */
+			// Loop through selected files, add to preview.
 			for ( i = 0; i < files.length; i++ ) {
 				
-				file_name = this.getFileName( files[i] );
+				var file_name = this.getFileName( files[i] );
 				
 				html  = '<div class="ginput_preview">';
 				html += '<img class="gform_delete" src="' + this.deleteImage + '" alt="' + this.deleteText + '" title="' + this.deleteText + '" data-file="' + file_name + '" /> ';
 				html += '<strong>' + file_name + '</strong>';
 				html += '</div>';
 				
-				preview.append( html );
+				preview.innerHTML += html;
 				
 			}
 			
@@ -83,12 +83,10 @@ window.GFDropbox = null;
 			
 			for ( i = 0; i < field_value.length; i++ ) {
 				
-				name = this.getFileName( field_value[i] );
+				var name = this.getFileName( field_value[i] );
 				
 				if ( name === file_name ) {
-					
 					field_value.splice( i, 1 );
-					
 				}
 				
 			}
@@ -100,21 +98,17 @@ window.GFDropbox = null;
 		}
 		
 		this.setFieldValue = function( value ) {
-			
-			value = JSON.stringify( value );
-			
-			$( '#input_' + this.formId + '_' + this.inputId ).val( value );
-			
+
+			document.getElementById( 'input_' + this.formId + '_' + this.inputId ).value = JSON.stringify( value );
+
 		}
 		
 		this.setupPreviewBind = function() {
 			
 			var preview = $( '#gform_preview_' + this.formId + '_' + this.inputId );
-			
-			$( '.ginput_preview img', preview ).live( 'click', function() {
-				
+
+			$( preview ).on( 'click', '.ginput_preview img', function() {
 				GFDropboxObj.removeFile( $( this ).attr( 'data-file' ) );
-				
 			} );
 			
 		}

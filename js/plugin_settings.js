@@ -49,11 +49,14 @@ window.GFDropboxSettings = null;
 
 				// De-Authorize.
 				$.ajax( {
-					async:     false,
-					url:       ajaxurl,
+					async:    false,
+					url:      ajaxurl,
 					dataType: 'json',
-					data:     { action: 'gfdropbox_deauthorize' },
-					success:  function( response ) {
+					data:     {
+						action: 'gfdropbox_deauthorize',
+						nonce:  gform_dropbox_pluginsettings_strings.nonce_deauthorize
+					},
+					success:  function ( response ) {
 
 						if ( response.success ) {
 							window.location.href = self.pageURL;
@@ -116,11 +119,20 @@ window.GFDropboxSettings = null;
 				'data':     {
 					'action':     'gfdropbox_valid_app_key_secret',
 					'app_key':    self.getAppKey(),
-					'app_secret': self.getAppSecret()
+					'app_secret': self.getAppSecret(),
+					'nonce':      gform_dropbox_pluginsettings_strings.nonce_validation
 				},
-				'success':  function( result ) {
-					self.setAppKeyStatus( result.valid_app_key, result.auth_url );
-					self.lockAppKeyFields( false );
+				'success':  function ( result ) {
+
+					if ( ! result.success ) {
+						if ( result.data ) {
+							alert( result.data.message );
+						}
+						self.lockAppKeyFields( false );
+					} else {
+						self.setAppKeyStatus( result.success, result.data.auth_url );
+						self.lockAppKeyFields( false );
+					}
 				}
 			} );
 
