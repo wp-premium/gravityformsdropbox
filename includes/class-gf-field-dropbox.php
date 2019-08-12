@@ -144,7 +144,7 @@ class GF_Field_Dropbox extends GF_Field {
 	 */
 	public function get_form_editor_inline_script_on_page_render() {
 
-		$js = sprintf( "function SetDefaultValues_%s(field) {field.label = '%s';}", $this->type, $this->get_form_editor_field_title() ) . PHP_EOL;
+		$js = sprintf( "function SetDefaultValues_%s(field) {field.label = '%s'; field.linkType = 'preview';}", $this->type, $this->get_form_editor_field_title() ) . PHP_EOL;
 
 		$js .= 'jQuery( document ).bind( "gform_load_field_settings", function( event, field, form ) {';
 		$js .= 'jQuery( "#field_multiselect" ).attr( "checked", field["multiselect"] == true );';

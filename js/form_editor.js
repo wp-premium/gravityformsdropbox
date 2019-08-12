@@ -42,12 +42,13 @@ window.GFDropboxFolder = null;
 			 			'url':      ajaxurl,
 			 			'dataType': 'JSON',
 			 			'data':     function( node ) {
-			 				return {
-				 				'action':     'gfdropbox_folder_contents',
-				 				'first_load': self.firstLoad,
-				 				'path':       '#' === node.id ? self.initialPath : node.id
-				 			};
-			 			},
+							return {
+								'action':     'gfdropbox_folder_contents',
+								'first_load': self.firstLoad,
+								'nonce':      gform_dropbox_formeditor_strings.nonce_folder,
+								'path':       '#' === node.id ? self.initialPath : node.id
+							};
+						},
 			 			'success':  function () {
 				 			self.firstLoad = ( self.firstLoad == true ) ? false : self.firstLoad;
 				 		}

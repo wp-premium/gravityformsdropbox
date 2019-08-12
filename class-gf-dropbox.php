@@ -1,10 +1,6 @@
 <?php
 
-use Kunnu\Dropbox\Dropbox as DropboxAPI;
-use Kunnu\Dropbox\DropboxApp;
-use Kunnu\Dropbox\DropboxFile;
-use Kunnu\Dropbox\Models\FileMetadata;
-use Kunnu\Dropbox\Models\FolderMetadata;
+defined( 'ABSPATH' ) or die();
 
 // Load Feed Add-On Framework.
 GFForms::include_feed_addon_framework();
@@ -143,11 +139,11 @@ class GF_Dropbox extends GFFeedAddOn {
 	protected $_capabilities = array( 'gravityforms_dropbox', 'gravityforms_dropbox_uninstall' );
 
 	/**
-	 * Contains an instance of the Dropbox API libray, if available.
+	 * Contains an instance of the Dropbox API library, if available.
 	 *
 	 * @since  1.0
 	 * @access protected
-	 * @var    DropboxAPI $api If available, contains an instance of the Dropbox API library.
+	 * @var    GF_Dropbox_API $api If available, contains an instance of the Dropbox API library.
 	 */
 	protected $api = null;
 
@@ -200,10 +196,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get instance of this class.
 	 *
 	 * @since  1.0
-	 * @access public
-	 * @static
 	 *
-	 * @return $_instance
+	 * @return GF_Dropbox
 	 */
 	public static function get_instance() {
 
@@ -219,10 +213,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Autoload the required libraries.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::is_gravityforms_supported()
-	 * @uses GFAddOn::get_plugin_setting()
 	 */
 	public function pre_init() {
 
@@ -230,8 +220,10 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		if ( $this->is_gravityforms_supported() ) {
 
-			// Initialize autoloader.
-			require_once 'includes/autoload.php';
+			// Load Dropbox API class.
+			if ( ! class_exists( 'GF_Dropbox_API' ) ) {
+				require_once( $this->get_base_path() . '/includes/class-gf-dropbox-api.php' );
+			}
 
 			// If custom app is enabled, load Dropbox field class.
 			if ( $this->get_plugin_setting( 'customAppEnable' ) ) {
@@ -248,7 +240,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add Dropbox feed processing hooks.
 	 *
 	 * @since  1.0
-	 * @access public
 	 */
 	public function init() {
 
@@ -270,7 +261,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add AJAX callback for retrieving folder contents.
 	 *
 	 * @since  1.0
-	 * @access public
 	 */
 	public function init_ajax() {
 
@@ -291,7 +281,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add required hooks.
 	 *
 	 * @since  2.0
-	 * @access public
 	 */
 	public function init_admin() {
 
@@ -308,7 +297,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Requirements needed to use Dropbox Add-On.
 	 *
 	 * @since  2.0
-	 * @access public
 	 *
 	 * @return array
 	 */
@@ -322,9 +310,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Start a new session on the plugin settings page.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::is_plugin_settings()
 	 */
 	public function start_session() {
 
@@ -338,7 +323,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Enqueue admin scripts.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return array
 	 */
@@ -362,6 +346,9 @@ class GF_Dropbox extends GFFeedAddOn {
 						'tab'        => $this->_slug,
 					),
 				),
+				'strings' => array(
+					'nonce_folder' => wp_create_nonce( 'gfdropbox_folder_contents' ),
+				),
 			),
 			array(
 				'handle'  => 'gform_dropbox_pluginsettings',
@@ -375,7 +362,9 @@ class GF_Dropbox extends GFFeedAddOn {
 					),
 				),
 				'strings' => array(
-					'settings_url' => admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug )
+					'nonce_deauthorize' => wp_create_nonce( 'gfdropbox_deauthorize' ),
+					'nonce_validation'  => wp_create_nonce( 'gfdropbox_valid_app_key_secret' ),
+					'settings_url'      => admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug ),
 				),
 			),
 			array(
@@ -399,7 +388,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Enqueue folder tree styling.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return array
 	 */
@@ -454,15 +442,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Maybe save access token.
 	 *
 	 * @since  2.0
-	 * @access public
-	 *
-	 * @uses AccessToken::getToken()
-	 * @uses DropboxAPI::getAuthHelper()
-	 * @uses DropboxApp
-	 * @uses DropboxAuthHelper::getAccessToken()
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::update_plugin_settings()
-	 * @uses GFCommon::add_error_message()
 	 */
 	public function plugin_settings_page() {
 
@@ -488,16 +467,16 @@ class GF_Dropbox extends GFFeedAddOn {
 				try {
 
 					// Check for default folder.
-					$folder_metadata = $this->api->getMetadata( $folder_path );
+					$folder_metadata = $this->api->get_metadata( $folder_path );
 
-				} catch ( \Exception $e ) {
+				} catch ( Exception $e ) {
 
 					try {
 
 						// Create folder.
-						$folder = $this->api->createFolder( $folder_path );
+						$folder = $this->api->create_folder( $folder_path );
 
-					} catch ( \Exception $e ) {
+					} catch ( Exception $e ) {
 
 						// Log that default folder could not be created.
 						$this->log_error( __METHOD__ . '(): Unable to create default folder (' . $folder_path . '); ' . $e->getMessage() );
@@ -511,33 +490,29 @@ class GF_Dropbox extends GFFeedAddOn {
 		}
 
 		// If authorization state and code are provided, attempt to create an access token.
-		if ( rgget( 'state' ) && rgget( 'code' ) ) {
+		if ( rgget( 'code' ) ) {
 
 			// Get current plugin settings.
 			$settings = $this->get_plugin_settings();
 
-			// Setup a new Dropbox API object.
-			$dropbox = new DropboxAPI( new DropboxApp( $settings['customAppKey'], $settings['customAppSecret'] ) );
+			// Initialize Dropbox API.
+			$dropbox = new GF_Dropbox_API( null, $settings['customAppKey'], $settings['customAppSecret'] );
 
 			try {
 
 				// Get access token.
-				$access_token = $dropbox->getAuthHelper()->getAccessToken( $_GET['code'], $_GET['state'], $this->get_redirect_uri() );
+				$access_token = $dropbox->get_access_token( $_GET['code'], $this->get_redirect_uri() );
 
 				// Add access token to plugin settings.
-				$settings['accessToken'] = $access_token->getToken();
+				$settings['accessToken'] = $access_token->access_token;
 
 				// Save plugin settings.
 				$this->update_plugin_settings( $settings );
 
-			} catch ( \Exception $e ) {
-
-				// Decode message.
-				$message = json_decode( $e->getMessage(), true );
-				$message = rgar( $message, 'error' ) ? $message['error'] : null;
+			} catch ( Exception $e ) {
 
 				// Add error message.
-				GFCommon::add_error_message( esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) . ' ' . esc_html( $message ) );
+				GFCommon::add_error_message( esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) . ' ' . esc_html( $e->getMessage() ) );
 
 			}
 
@@ -559,17 +534,10 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Setup plugin settings fields.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GF_Dropbox::initialize_api()
 	 *
 	 * @return array
 	 */
 	public function plugin_settings_fields() {
-
-		// Get current plugin settings.
-		$settings = $this->get_plugin_settings();
 
 		// Prepare base fields.
 		$fields = array(
@@ -603,18 +571,9 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Create Generate Auth Token settings field.
 	 *
 	 * @since  2.0
-	 * @access public
 	 *
 	 * @param array $field Field settings.
 	 * @param bool  $echo  Display field. Defaults to true.
-	 *
-	 * @uses DropboxAPI::getCurrentAccount()
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::single_setting_row()
-	 * @uses GF_Dropbox::get_auth_url()
-	 * @uses GF_Dropbox::get_redirect_uri()
-	 * @uses GF_Dropbox::initialize_api()
-	 * @uses GF_Dropbox::is_valid_app_key_secret()
 	 *
 	 * @return string
 	 */
@@ -629,15 +588,27 @@ class GF_Dropbox extends GFFeedAddOn {
 		// If Dropbox is authenticated, display de-authorize button.
 		if ( $this->initialize_api() ) {
 
-			// Get account information.
-			$account = $this->api->getCurrentAccount();
+			try {
 
-			$html .= '<p>' . esc_html__( 'Authenticated with Dropbox as: ', 'gravityformsdropbox' );
-			$html .= esc_html( $account->getDisplayName() ) . '</p>';
-			$html .= sprintf(
-				' <a href="#" class="button" id="gform_dropbox_deauth_button">%1$s</a>',
-				esc_html__( 'De-Authorize Dropbox', 'gravityformsdropbox' )
-			);
+				// Get account information.
+				$account = $this->api->get_current_account();
+
+				$html .= '<p>' . esc_html__( 'Authenticated with Dropbox as: ', 'gravityformsdropbox' );
+				$html .= esc_html( $account->name->display_name ) . '</p>';
+				$html .= sprintf(
+					' <a href="#" class="button" id="gform_dropbox_deauth_button">%1$s</a>',
+					esc_html__( 'De-Authorize Dropbox', 'gravityformsdropbox' )
+				);
+
+			} catch ( Exception $e ) {
+
+				// Log that we could not get account information.
+				$this->log_error( __METHOD__ . '(): Unable to get account information; ' . $e->getMessage() );
+
+				// Display error message.
+				$html .= sprintf( '<p>%s</p>', esc_html__( 'Unable to get account information.', 'gravityformsdropbox' ) );
+
+			}
 
 		} else {
 
@@ -645,23 +616,16 @@ class GF_Dropbox extends GFFeedAddOn {
 
 				// If SSL is available, display custom app settings.
 				if ( is_ssl() ) {
-
 					$html .= $this->custom_app_settings();
-
 				} else {
-
-					$html .= '<p>';
-					$html .= esc_html__( 'To use a custom Dropbox app, you must have an SSL certificate installed and enabled. Visit this page after configuring your SSL certificate to use a custom Dropbox app.', 'gravityformsdropbox' );
-					$html .= '</p>';
-
+					$html .= sprintf( '<p>%s</p>', esc_html__( 'To use a custom Dropbox app, you must have an SSL certificate installed and enabled. Visit this page after configuring your SSL certificate to use a custom Dropbox app.', 'gravityformsdropbox' ) );
 				}
 
-				$html .= '<p>&nbsp;</p>';
-				$html .= '<p>&nbsp;</p>';
-
-				$html .= '<p class="gform_dropbox_disclaimer">';
-				$html .= sprintf( esc_html__( '%sI do not want to use a custom Dropbox app.%s', 'gravityformsdropbox' ), '<a href="#" id="gform_dropbox_disable_customApp">', '</a>' );
-				$html .= '</p>';
+				$html .= '<p>&nbsp;</p><p>&nbsp;</p>';
+				$html .= sprintf(
+					'<p class="gform_dropbox_disclaimer">%s</p>',
+					sprintf( esc_html__( '%sI do not want to use a custom Dropbox app.%s', 'gravityformsdropbox' ), '<a href="#" id="gform_dropbox_disable_customApp">', '</a>' )
+				);
 
 			} else {
 
@@ -675,12 +639,11 @@ class GF_Dropbox extends GFFeedAddOn {
 					$auth_url
 				);
 
-				$html .= '<p>&nbsp;</p>';
-				$html .= '<p>&nbsp;</p>';
-
-				$html .= '<p class="gform_dropbox_disclaimer">';
-				$html .= sprintf( esc_html__( '%sI want to use a custom Dropbox app.%s (Recommended for advanced users only.)', 'gravityformsdropbox' ), '<a href="#" id="gform_dropbox_enable_customApp">', '</a>' );
-				$html .= '</p>';
+				$html .= '<p>&nbsp;</p><p>&nbsp;</p>';
+				$html .= sprintf(
+					'<p class="gform_dropbox_disclaimer">%s</p>',
+					sprintf( esc_html__( '%sI want to use a custom Dropbox app.%s (Recommended for advanced users only.)', 'gravityformsdropbox' ), '<a href="#" id="gform_dropbox_enable_customApp">', '</a>' )
+				);
 
 			}
 
@@ -698,13 +661,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Renders settings section for custom Dropbox app.
 	 *
 	 * @since  2.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::single_setting_row()
-	 * @uses GF_Dropbox::get_auth_url()
-	 * @uses GF_Dropbox::get_redirect_uri()
-	 * @uses GF_Dropbox::is_valid_app_key_secret()
 	 *
 	 * @return string
 	 */
@@ -780,32 +736,31 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Deauthorize with Dropbox.
 	 *
 	 * @since  2.0
-	 * @access public
-	 *
-	 * @uses DropboxAPI::getAuthHelper()
-	 * @uses DropboxApp()
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAddOn::update_plugin_settings()
 	 */
 	public function ajax_deauthorize() {
+
+		// Verify nonce.
+		if ( false === wp_verify_nonce( rgget( 'nonce' ), 'gfdropbox_deauthorize' ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Access denied.', 'gravityformsdropbox' ) ) );
+		}
+
+		// If user is not authorized, exit.
+		if ( ! GFCommon::current_user_can_any( $this->_capabilities_settings_page ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Access denied.', 'gravityformsdropbox' ) ) );
+		}
+
+		// If API cannot be initialized, exit.
+		if ( ! $this->initialize_api() ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) ) );
+		}
 
 		// Get plugin settings.
 		$settings = $this->get_plugin_settings();
 
-		// Setup a new Dropbox App object.
-		$app = new DropboxApp( $this->get_app_key(), $this->get_app_secret(), $settings['accessToken'] );
-
-		// Setup a new Dropbox API object.
-		$dropbox = new DropboxAPI( $app );
-
-		// Get Dropbox auth helper.
-		$auth_helper = $dropbox->getAuthHelper();
-
 		try {
 
 			// Revoke access token.
-			$revoke = $auth_helper->revokeAccessToken();
+			$revoke = $this->api->revoke_token();
 
 			// Log that we revoked the access token.
 			$this->log_debug( __METHOD__ . '(): Access token revoked.' );
@@ -822,7 +777,7 @@ class GF_Dropbox extends GFFeedAddOn {
 		} catch ( \Exception $e ) {
 
 			// Log that we could not revoke the access token.
-			$this->log_debug( __METHOD__ . '(): Unable to revoke access token; '. $e->getMessage() );
+			$this->log_debug( __METHOD__ . '(): Unable to revoke access token; ' . $e->getMessage() );
 
 			// Return error response.
 			wp_send_json_error( array( 'message' => $e->getMessage() ) );
@@ -841,7 +796,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Setup fields for feed settings.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return array
 	 */
@@ -907,7 +861,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Sanitize feed settings field value on save.
 	 *
 	 * @since  2.0.6
-	 * @access public
 	 *
 	 * @param array  $field       Settings field properties.
 	 * @param string $field_value Field value.
@@ -924,15 +877,9 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Create folder tree settings field.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $field Field settings.
 	 * @param bool  $echo  Display field. Defaults to true.
-	 *
-	 * @uses GFAddOn::field_failed_validation()
-	 * @uses GFAddOn::get_error_icon()
-	 * @uses GFAddOn::get_field_attributes()
-	 * @uses GFAddOn::get_setting()
 	 *
 	 * @return string
 	 */
@@ -975,9 +922,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Set if feeds can be created.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GF_Dropbox::initialize_api()
 	 *
 	 * @return bool
 	 */
@@ -991,7 +935,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Enable feed duplication.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $id Feed ID requesting duplication.
 	 *
@@ -1007,7 +950,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Setup columns for feed list table.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return array
 	 */
@@ -1024,10 +966,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Notify user form requires file upload fields if not present.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GF_Dropbox::has_file_upload_fields()
-	 * @uses GF_Dropbox::requires_file_upload_message()
 	 *
 	 * @return string|bool
 	 */
@@ -1046,7 +984,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Link user to form editor to add file upload fields.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return string
 	 */
@@ -1066,9 +1003,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get file upload fields for feed setting.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GF_Dropbox::has_file_upload_fields()
 	 *
 	 * @return array
 	 */
@@ -1103,13 +1037,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get file upload fields for form.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param int $form_id Form ID. Defaults to null.
-	 *
-	 * @uses GFAddOn::get_current_form()
-	 * @uses GFAPI::get_fields_by_type()
-	 * @uses GFAPI::get_form()
 	 *
 	 * @return array
 	 */
@@ -1127,15 +1056,9 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get folder tree for feed settings field.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $path       Dropbox folder path.
 	 * @param bool   $first_load If this is the first load of tree path. Defaults to false.
-	 *
-	 * @uses GFAddOn::log_error()
-	 * @uses GF_Dropbox::get_folder()
-	 * @uses GF_Dropbox::initialize_api()
-	 * @uses GF_Dropbox::unique_folder_tree()
 	 *
 	 * @return array
 	 */
@@ -1226,7 +1149,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Ensure folder tree does not contain any duplicate folders.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $tree Dropbox folders.
 	 *
@@ -1259,7 +1181,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Sort folder tree in alphabetical order.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $a First item.
 	 * @param array $b Second item.
@@ -1276,16 +1197,22 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get Dropbox folder tree for AJAX requests.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GF_Dropbox::get_folder_tree()
 	 */
 	public function ajax_get_folder_contents() {
 
+		// Verify nonce.
+		if ( false === wp_verify_nonce( rgget( 'nonce' ), 'gfdropbox_folder_contents' ) ) {
+			wp_send_json( array() );
+		}
+
+		// If user is not authorized, exit.
+		if ( ! GFCommon::current_user_can_any( $this->_capabilities_settings_page ) ) {
+			wp_send_json( array() );
+		}
+
 		$path = '#' === rgget( 'path' ) ? '/' : rgget( 'path' );
 
-		echo wp_json_encode( $this->get_folder_tree( $path, rgget( 'first_load' ) ) );
-		die();
+		wp_send_json( $this->get_folder_tree( $path, rgget( 'first_load' ) ) );
 
 	}
 
@@ -1299,13 +1226,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Remove Dropbox Upload field from form if custom app is not configured or Chooser is not available.
 	 *
 	 * @since  2.0
-	 * @access public
 	 *
 	 * @param array $form Form object.
-	 *
-	 * @uses GFAddOn::get_plugin_setting()
-	 * @uses GFAPI::get_fields_by_type()
-	 * @uses GF_Dropbox::is_chooser_available()
 	 *
 	 * @return array
 	 */
@@ -1362,7 +1284,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add settings fields for Dropbox field.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param int $position The position that the settings should be displayed.
 	 * @param int $form_id  The ID of the form being edited.
@@ -1400,7 +1321,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add Javascript for Dropbox field settings.
 	 *
 	 * @since  1.0
-	 * @access public
 	 */
 	public function add_field_settings_js() {
 
@@ -1408,9 +1328,9 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		<script type="text/javascript">
 			jQuery( document ).bind( 'gform_load_field_settings', function ( e, field, form ) {
-				jQuery( '#field_link_type_preview' ).attr( 'checked', 'preview' === field[ 'linkType' ] );
-				jQuery( '#field_link_type_direct' ).attr( 'checked', 'direct' === field[ 'linkType' ] );
-				jQuery( '#field_multiselect' ).attr( 'checked', true === field[ 'multiselect' ] );
+				document.getElementById( 'field_link_type_preview' ).checked = ( 'preview' === field[ 'linkType' ] );
+				document.getElementById( 'field_link_type_direct' ).checked = ( 'direct' === field[ 'linkType' ] );
+				document.getElementById( 'field_multiselect' ).checked = ( true === field[ 'multiselect' ] );
 			} );
 		</script>
 
@@ -1428,16 +1348,10 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Add feed to processing queue.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $feed  Feed object.
 	 * @param array $entry Entry object.
 	 * @param array $form  Form object.
-	 *
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFFeedAddOn::add_feed_error()
-	 * @uses GF_Dropbox::initialize_api()
-	 * @uses GF_Field::get_input_type()
 	 */
 	public function process_feed( $feed, $entry, $form ) {
 
@@ -1497,7 +1411,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Disable the notification and stash the event for processing later.
 	 *
 	 * @since 1.2.2
-	 * @access public
 	 *
 	 * @param bool  $is_disabled  Notification disable status.
 	 * @param array $notification Notification object.
@@ -1522,12 +1435,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Process queued feeds on shutdown.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAddOn::log-error()
-	 * @uses GF_Dropbox::create_nonce()
-	 * @uses WP_Error::get_error_message()
 	 */
 	public function maybe_process_feed_on_shutdown() {
 
@@ -1584,16 +1491,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Process queued feed.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAPI::get_entry()
-	 * @uses GFAPI::get_form()
-	 * @uses GFAPI::send_notifications()
-	 * @uses GF_Dropbox::maybe_delete_files()
-	 * @uses GF_Dropbox::process_feed_files()
-	 * @uses GF_Dropbox::update_entry_links()
-	 * @uses GF_Dropbox::verify_nonce()
 	 */
 	public function maybe_process_feed_on_post_request() {
 
@@ -1650,16 +1547,10 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Process feed.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $feed  Feed object.
 	 * @param array $entry Entry object.
 	 * @param array $form  Form object.
-	 *
-	 * @uses GFFeedAddOn::add_feed_error()
-	 * @uses GFAddOn::log_debug()
-	 * @uses GF_Dropbox::initialize_api()
-	 * @uses GF_Field::get_input_type()
 	 */
 	public function process_feed_files( $feed, $entry, $form ) {
 
@@ -1706,19 +1597,11 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Process Dropbox upload fields.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
-	 * @param array $field Field object.
-	 * @param array $feed  Feed object.
-	 * @param array $entry Entry object.
-	 * @param array $form  Form object.
-	 *
-	 * @uses DropboxAPI::checkJobStatus()
-	 * @uses DropboxAPI::getMetadata()
-	 * @uses DropboxAPI::saveUrl()
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAPI::update_entry_field()
-	 * @uses GFFeedAddOn::add_feed_error()
+	 * @param GF_Field_Dropbox $field Field object.
+	 * @param array            $feed  Feed object.
+	 * @param array            $entry Entry object.
+	 * @param array            $form  Form object.
 	 */
 	public function process_dropbox_fields( $field, $feed, $entry, $form ) {
 
@@ -1778,51 +1661,31 @@ class GF_Dropbox extends GFFeedAddOn {
 			 */
 			$file_name = gf_apply_filters( array( 'gform_dropbox_file_name', $form['id'] ), $file_name, $form, $field->id, $entry, $feed );
 
-			// Save the URL to Dropbox.
-			$save_url_id = $this->api->saveUrl( trailingslashit( $folder_path ) . $file_name, $file );
+			try {
 
-			// Get the save URL job status.
-			$save_url_status = $this->api->checkJobStatus( $save_url_id );
+				// Save the URL to Dropbox.
+				$saved_file = $this->api->save_url( trailingslashit( $folder_path ) . $file_name, $file );
 
-			// If save URL failed, log error.
-			if ( 'failed' === $save_url_status ) {
+			} catch ( Exception $e ) {
+
+				// Log that file could not be saved to Dropbox.
 				$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $file ), $feed, $entry, $form );
 				continue;
+
 			}
 
-			// Get the save URL job status.
-			while ( 'failed' !== $save_url_status && ! $save_url_status instanceof FileMetadata ) {
-				$save_url_status = $this->api->checkJobStatus( $save_url_id );
-				sleep( 2 );
-			}
+			try {
 
-			// If save URL job finished, get shareable link.
-			if ( $save_url_status instanceof FileMetadata ) {
+				// Get shareable link.
+				$shareable_link = $this->api->create_shared_link_with_settings( $saved_file->path_display );
 
-				// Create public link.
-				try {
+				// Set file URL.
+				$file = $shareable_link->url;
 
-					// Prepare request parameters.
-					$request_params = array( 'path' => $save_url_status->getPathDisplay() );
+			} catch ( Exception $e ) {
 
-					// Execute request.
-					$shareable_link = $this->api->postToAPI( '/sharing/create_shared_link_with_settings', $request_params );
-
-					// Set file URL.
-					$file = $shareable_link->getDecodedBody()['url'];
-
-				} catch ( \Exception $e ) {
-
-					// Log that we could not create a public link.
-					$this->add_feed_error( sprintf( esc_html__( 'Unable to create shareable link for file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
-					continue;
-
-				}
-
-			} else {
-
-				// Log that we could not upload file.
-				$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $file ), $feed, $entry, $form );
+				// Log that we could not create a public link.
+				$this->add_feed_error( sprintf( esc_html__( 'Unable to create shareable link for file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
 				continue;
 
 			}
@@ -1844,16 +1707,11 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Process file upload fields.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param GF_Field_FileUpload $field Field object.
 	 * @param array               $feed  Feed object.
 	 * @param array               $entry Entry object.
 	 * @param array               $form  Form object.
-	 *
-	 * @uses   GFAddOn::log_debug()
-	 * @uses   GFAPI::update_entry_field()
-	 * @uses   GF_Dropbox::upload_file()
 	 */
 	public function process_fileupload_fields( $field, $feed, $entry, $form ) {
 
@@ -1934,19 +1792,12 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Upload file to Dropbox.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $file     File to be uploaded.
 	 * @param array $form     Form object.
 	 * @param int   $field_id Field ID being uploaded.
 	 * @param array $entry    Entry object.
 	 * @param array $feed     Feed object.
-	 *
-	 * @uses DropboxAPI::createFolder()
-	 * @uses DropboxAPI::getMetadata()
-	 * @uses DropboxAPI::postToAPI()
-	 * @uses DropboxAPI::upload()
-	 * @uses GF_Dropbox::initialize_api()
 	 *
 	 * @return string
 	 */
@@ -1978,17 +1829,28 @@ class GF_Dropbox extends GFFeedAddOn {
 			try {
 
 				// Get folder metadata.
-				$destination_folder = $this->api->getMetadata( $folder_path );
+				$destination_folder = $this->api->get_metadata( $folder_path );
 
-			} catch ( \Exception $e ) {
+				// If destination folder is not a folder, return current file URL.
+				if ( 'folder' !== $destination_folder->{'.tag'} ) {
+
+					// Log that folder is not a folder.
+					$this->add_feed_error( esc_html__( 'Unable to upload file because destination is not a folder.', 'gravityformsdropboox' ), $feed, $entry, $form );
+
+					// Return file URL.
+					return rgar( $file, 'url' );
+
+				}
+
+			} catch ( Exception $e ) {
 
 				// Folder does not exist. Try to create it.
 				try {
 
 					// Create folder.
-					$destination_folder = $this->api->createFolder( $folder_path );
+					$destination_folder = $this->api->create_folder( $folder_path );
 
-				} catch ( \Exception $e ) {
+				} catch ( Exception $e ) {
 
 					// Log that folder could not be created.
 					$this->add_feed_error( esc_html__( 'Unable to upload file because destination folder could not be created.', 'gravityformsdropboox' ), $feed, $entry, $form );
@@ -1997,17 +1859,6 @@ class GF_Dropbox extends GFFeedAddOn {
 					return rgar( $file, 'url' );
 
 				}
-
-			}
-
-			// If destination folder is not a folder, return current file URL.
-			if ( ! is_a( $destination_folder, 'Kunnu\Dropbox\Models\FolderMetadata' ) ) {
-
-				// Log that folder is not a folder.
-				$this->add_feed_error( esc_html__( 'Unable to upload file because destination is not a folder.', 'gravityformsdropboox' ), $feed, $entry, $form );
-
-				// Return file URL.
-				return rgar( $file, 'url' );
 
 			}
 
@@ -2030,19 +1881,16 @@ class GF_Dropbox extends GFFeedAddOn {
 			$file['name'] = basename( $file['path'] );
 		}
 
-		// Create a new Dropbox file.
-		$file_handler = new DropboxFile( $file['path'] );
-
 		// Upload file to dropbox.
 		try {
 
 			// Upload file.
-			$dropbox_file = $this->api->upload( $file_handler, trailingslashit( $folder_path ) . $file['name'], array( 'autorename' => true ) );
+			$dropbox_file = $this->api->upload( $file['path'], trailingslashit( $folder_path ) . $file['name'], array( 'autorename' => true ) );
 
 			// Log that file was uploaded.
-			$this->log_debug( __METHOD__ . '(): File "' . $dropbox_file->getName() . '" was successfully uploaded.' );
+			$this->log_debug( __METHOD__ . '(): File "' . $dropbox_file->name . '" was successfully uploaded.' );
 
-		} catch ( \Exception $e ) {
+		} catch ( Exception $e ) {
 
 			// Log that file could not be uploaded.
 			$this->add_feed_error( sprintf( esc_html__( 'Unable to upload file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
@@ -2104,36 +1952,30 @@ class GF_Dropbox extends GFFeedAddOn {
 				$field_id,
 			), array( 'requested_visibility' => 'public' ), $field_id, $form, $entry, $feed );
 
-			// Prepare request parameters.
-			$request_params = array( 'path' => $dropbox_file->getPathDisplay(), 'settings' => $shareable_link_settings );
-
 			// Execute request.
-			$shareable_link = $this->api->postToAPI( '/sharing/create_shared_link_with_settings', $request_params );
+			$shareable_link = $this->api->create_shared_link_with_settings( $dropbox_file->path_display, $shareable_link_settings );
 
 			// Return shareable file link.
-			return $shareable_link->getDecodedBody()['url'];
+			return $shareable_link->url;
 
-		} catch ( \Exception $e ) {
+		} catch ( Exception $e ) {
 
 			try {
 
-				// Prepare request parameters.
-				$request_params = array( 'path' => $dropbox_file->getPathDisplay(), 'direct_only' => true );
-
 				// Execute request.
-				$shareable_links = $this->api->postToAPI( '/sharing/list_shared_links', $request_params );
+				$shareable_links = $this->api->list_shared_links( $dropbox_file->path_display, null, true );
 
 				// Get existing sharable links.
-				$links = $shareable_links->getDecodedBody()['links'];
+				$links = $shareable_links->links;
 
 				// If links were found, return first link.
 				if ( ! empty( $links ) ) {
-					return $links[0]['url'];
+					return $links[0]->url;
 				} else {
 					return rgar( $file, 'url' );
 				}
 
-			} catch ( \Exception $f ) {
+			} catch ( Exception $f ) {
 
 				// Log that we could not create a public link.
 				$this->add_feed_error( sprintf( esc_html__( 'Unable to create shareable link for file: %s', 'gravityformsdropbox' ), $e->getMessage() ), $feed, $entry, $form );
@@ -2151,9 +1993,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Delete files that do not need a local version.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::log_debug()
 	 */
 	public function maybe_delete_files() {
 
@@ -2174,11 +2013,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Update entry with Dropbox links.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param array $entry Entry object.
-	 *
-	 * @uses GFAddOn::log_debug()
 	 *
 	 * @return array
 	 */
@@ -2219,15 +2055,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Initializes Dropbox API if credentials are valid.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $access_token (default: null) Dropbox access token.
-	 *
-	 * @uses DropboxAPI::getCurrentAccount()
-	 * @uses DropboxApp
-	 * @uses GFAddOn::get_plugin_setting()
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAddOn::log_error()
 	 *
 	 * @return bool|null
 	 */
@@ -2251,14 +2080,11 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		try {
 
-			// Setup a new Dropbox App object.
-			$app = new DropboxApp( $this->get_app_key(), $this->get_app_secret(), $access_token );
-
 			// Setup a new Dropbox API object.
-			$dropbox = new DropboxAPI( $app );
+			$dropbox = new GF_Dropbox_API( $access_token, $this->get_app_key(), $this->get_app_secret() );
 
 			// Attempt to get account info.
-			$dropbox->getCurrentAccount();
+			$dropbox->get_current_account();
 
 			// Set the Dropbox API object to this instance.
 			$this->api = $dropbox;
@@ -2268,7 +2094,7 @@ class GF_Dropbox extends GFFeedAddOn {
 
 			return true;
 
-		} catch ( \Exception $e ) {
+		} catch ( Exception $e ) {
 
 			// Log that test failed.
 			$this->log_error( __METHOD__ . '(): API credentials are invalid; ' . $e->getMessage() );
@@ -2277,17 +2103,12 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		}
 
-		return false;
-
 	}
 
 	/**
 	 * Get Dropbox app key.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
 	 *
 	 * @return string
 	 */
@@ -2304,9 +2125,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get Dropbox app secret.
 	 *
 	 * @since  1.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
 	 *
 	 * @return string
 	 */
@@ -2323,7 +2141,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get OAuth Redirect URI for custom Dropbox app.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return string
 	 */
@@ -2337,29 +2154,17 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get Dropbox authentication URL.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $app_key Dropbox app key.
 	 * @param string $app_secret Dropbox app secret.
-	 *
-	 * @uses DropboxAPI::getAuthHelper()
-	 * @uses GF_Dropbox::get_app_key()
-	 * @uses GF_Dropbox::get_app_secret()
-	 * @uses GF_Dropbox::get_redirect_uri()
 	 *
 	 * @return string
 	 */
 	public function get_auth_url( $app_key = null, $app_secret = null ) {
 
-		// If app key is empty, get from setting.
-		if ( rgblank( $app_key ) ) {
-			$app_key = $this->get_app_key();
-		}
-
-		// If app secret is empty, get from setting.
-		if ( rgblank( $app_secret ) ) {
-			$app_secret = $this->get_app_secret();
-		}
+		// Get app key and secret from setting if not provided.
+		$app_key    = rgblank( $app_key ) ? $this->get_app_key() : $app_key;
+		$app_secret = rgblank( $app_secret ) ? $this->get_app_secret() : $app_secret;
 
 		// If app key or secret are empty, return null.
 		if ( rgblank( $app_key ) || rgblank( $app_secret ) ) {
@@ -2367,9 +2172,9 @@ class GF_Dropbox extends GFFeedAddOn {
 		}
 
 		// Setup a new Dropbox API object.
-		$dropbox = new DropboxAPI( new DropboxApp( $app_key, $app_secret ) );
+		$dropbox = new GF_Dropbox_API( null, $app_key, $app_secret );
 
-		return $dropbox->getAuthHelper()->getAuthUrl( $this->get_redirect_uri() );
+		return $dropbox->get_authorization_url( $this->get_redirect_uri() );
 
 	}
 
@@ -2377,10 +2182,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Check if Dropbox Chooser is available for use.
 	 *
 	 * @since  2.0
-	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_setting()
-	 * @uses GF_Dropbox::get_app_key()
 	 *
 	 * @return bool
 	 */
@@ -2420,15 +2221,9 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Check if Dropbox app key and secret are valid.
 	 *
 	 * @since  1.0
-	 * @access public
-	 * @param string $app_key Dropbox app key.
-	 * @param string $app_secret Dropbox app secret.
 	 *
-	 * @uses GFAddOn::log_debug()
-	 * @uses GFAddOn::log_error()
-	 * @uses GF_Dropbox::get_app_key()
-	 * @uses GF_Dropbox::get_app_secret()
-	 * @uses GF_Dropbox::get_auth_url()
+	 * @param string $app_key    Dropbox app key.
+	 * @param string $app_secret Dropbox app secret.
 	 *
 	 * @return bool|null
 	 */
@@ -2445,15 +2240,9 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		} else {
 
-			// If app key is empty, get from setting.
-			if ( rgblank( $app_key ) ) {
-				$app_key = $this->get_app_key();
-			}
-
-			// If app secret is empty, get from setting.
-			if ( rgblank( $app_secret ) ) {
-				$app_secret = $this->get_app_secret();
-			}
+			// Get app key and secret from setting if not provided.
+			$app_key    = rgblank( $app_key ) ? $this->get_app_key() : $app_key;
+			$app_secret = rgblank( $app_secret ) ? $this->get_app_secret() : $app_secret;
 
 		}
 
@@ -2485,13 +2274,18 @@ class GF_Dropbox extends GFFeedAddOn {
 	 *
 	 * @since  1.0
 	 * @access public
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::update_plugin_settings()
-	 * @uses GF_Dropbox::get_auth_url()
-	 * @uses GF_Dropbox::is_valid_app_key_secret()
 	 */
 	public function ajax_is_valid_app_key_secret() {
+
+		// Verify nonce.
+		if ( false === wp_verify_nonce( rgget( 'nonce' ), 'gfdropbox_valid_app_key_secret' ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Access denied.', 'gravityformsdropbox' ) ) );
+		}
+
+		// If user is not authorized, exit.
+		if ( ! GFCommon::current_user_can_any( $this->_capabilities_settings_page ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'Access denied.', 'gravityformsdropbox' ) ) );
+		}
 
 		// Set initial auth URL.
 		$auth_url = null;
@@ -2519,10 +2313,13 @@ class GF_Dropbox extends GFFeedAddOn {
 			// Get authentication URL.
 			$auth_url = $this->get_auth_url( $app_key, $app_secret );
 
-		}
+			wp_send_json_success( array( 'auth_url' => $auth_url ) );
 
-		echo json_encode( array( 'valid_app_key' => $is_valid, 'auth_url' => $auth_url ) );
-		die();
+		} else {
+
+			wp_send_json_error();
+
+		}
 
 	}
 
@@ -2530,14 +2327,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Get folder contents.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $path Folder path.
-	 *
-	 * @uses DropboxAPI::getMetadata()
-	 * @uses DropboxAPI::listFolder()
-	 * @uses GFAddOn::log_error()
-	 * @uses GF_Dropbox::initialize_api()
 	 *
 	 * @return array
 	 */
@@ -2569,13 +2360,13 @@ class GF_Dropbox extends GFFeedAddOn {
 			try {
 
 				// Get folder metadata.
-				$folder_metadata = $this->api->getMetadata( $path );
+				$folder_metadata = $this->api->get_metadata( $path );
 
 				// Set folder path and exploded path.
-				$folder_path          = $folder_metadata->getPathLower();
-				$exploded_folder_path = explode( '/', $folder_metadata->getPathDisplay() );
+				$folder_path          = $folder_metadata->path_lower;
+				$exploded_folder_path = explode( '/', $folder_metadata->path_display );
 
-			} catch ( \Exception $e ) {
+			} catch ( Exception $e ) {
 
 				// Log that folder could not be found.
 				$this->log_error( __METHOD__ . '(): Unable to get contents of folder (' . $path . ') because folder could not be found.' );
@@ -2592,7 +2383,7 @@ class GF_Dropbox extends GFFeedAddOn {
 		try {
 
 			// Get folder metadata.
-			$folder_contents = $this->api->listFolder( $folder_path );
+			$folder_contents = $this->api->list_folder( '/' === $folder_path ? '' : $folder_path );
 
 		} catch ( \Exception $e ) {
 
@@ -2611,10 +2402,10 @@ class GF_Dropbox extends GFFeedAddOn {
 		);
 
 		// Loop through folder items.
-		foreach ( $folder_contents->getItems()->all() as $item ) {
+		foreach ( $folder_contents->entries as $item ) {
 
 			// If item is not a folder, skip it.
-			if ( ! is_a( $item, 'Kunnu\Dropbox\Models\FolderMetadata' ) ) {
+			if ( 'folder' !== $item->{'.tag'} ) {
 				continue;
 			}
 
@@ -2625,20 +2416,20 @@ class GF_Dropbox extends GFFeedAddOn {
 			try {
 
 				// Get item contents.
-				$item_contents = $this->api->listFolder( $item->getPathDisplay() );
+				$item_contents = $this->api->list_folder( $item->path_display );
 
 			} catch ( \Exception $e ) {
 
 				// Log that folder contents could not be retrieved.
-				$this->log_error( __METHOD__ . '(): Unable to get contents of folder (' . $item->getPathDisplay() . ').' );
+				$this->log_error( __METHOD__ . '(): Unable to get contents of folder (' . $item->path_display . ').' );
 
 			}
 
 			// Loop through folder contents.
-			foreach ( $item_contents->getItems()->all() as $child_item ) {
+			foreach ( $item_contents->entries as $child_item ) {
 
 				// If item is a folder, set has children flag to true.
-				if ( is_a( $child_item, 'Kunnu\Dropbox\Models\FolderMetadata' ) ) {
+				if ( 'folder' !== $child_item->{'.tag'} ) {
 					$has_children = true;
 				}
 
@@ -2646,9 +2437,9 @@ class GF_Dropbox extends GFFeedAddOn {
 
 			// Add child folder.
 			$folder['child_folders'][] = array(
-				'id'       => $item->getPathLower(),
-				'text'     => $item->getName(),
-				'parent'   => dirname( $item->getPathLower() ),
+				'id'       => $item->path_lower,
+				'text'     => $item->name,
+				'parent'   => dirname( $item->path_lower ),
 				'children' => $has_children,
 			);
 
@@ -2667,7 +2458,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Create nonce for Dropbox upload request.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @return string
 	 */
@@ -2684,11 +2474,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Verify nonce for Dropbox upload request.
 	 *
 	 * @since  1.0
-	 * @access public
 	 *
 	 * @param string $nonce Nonce to be verified.
-	 *
-	 * @uses GFAddOn::log_error()
 	 *
 	 * @return int|bool
 	 */
@@ -2718,13 +2505,8 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * Checks if a previous version was installed and enable default app flag if no custom app was used.
 	 *
 	 * @since  1.0.6
-	 * @access public
 	 *
 	 * @param string $previous_version The version number of the previously installed version.
-	 *
-	 * @uses GFAddOn::get_plugin_settings()
-	 * @uses GFAddOn::update_plugin_settings()
-	 * @uses GF_Dropbox::initialize_api()
 	 */
 	public function upgrade( $previous_version ) {
 
