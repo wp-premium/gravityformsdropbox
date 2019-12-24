@@ -1,3 +1,11 @@
+### 2.5 | 2019-11-13
+- Updated Javascript files, stylesheets to use minified versions.
+- Fixed an issue with files uploaded to Dropbox not attaching to notifications.
+- Fixed feed processing background request not registering in certain scenarios.
+- Fixed an issue in notifications with multiple Dropbox feeds tied to different file upload fields sometimes returning bad file URLs.
+- Fixed PHP warning caused by logging statement during feed processing.
+
+
 ### 2.4 | 2019-07-24
 - Added security enhancements.
 - Fixed Dropbox Upload field utilizing deprecated jQuery.live() function.
@@ -14,13 +22,13 @@
 - Fixed folder tree not defaulting to currently selected folder on initial load of feed settings page.
 - Fixed file selected in Dropbox Upload field not being saved when hidden input contains invalid JSON string.
 - Fixed shareable link not being returned if link already exists for file.
-- Removeddeprecated logic events for Gravity Forms 2.4.
+- Removed deprecated logic events for Gravity Forms 2.4.
 - Restore link type and multiselect field settings.
 
 
 ### 2.1 | 2018-03-21
 - Added security enhancements.
-- Added *gform_dropbox_shareable_link_settings* filter to modify settings when generating a shareable Dropbox link.
+- Added *[gform_dropbox_shareable_link_settings](https://docs.gravityforms.com/gform_dropbox_shareable_link_settings/)* filter to modify settings when generating a shareable Dropbox link.
 - Added GPL to plugin header.
 - Fixed Dropbox PHP SDK not being included in the 2.0.1 build.
 - Fixed the file extensions list used to initialize the Dropbox Chooser.
@@ -48,14 +56,14 @@
 
 ### 1.2 | 2016-03-31
 - Added feed duplication support.
-- Added [gform_dropbox_post_upload](https://docs.gravityforms.com/gform_dropbox_post_upload) action that fires after a feed has been processed.
-- Added *gform_dropbox_ssl_compatibility* filter to override SSL compatibility test.
+- Added *[gform_dropbox_post_upload](https://docs.gravityforms.com/gform_dropbox_post_upload)* action that fires after a feed has been processed.
+- Added *[gform_dropbox_ssl_compatibility](https://docs.gravityforms.com/gform_dropbox_ssl_compatibility/)* filter to override SSL compatibility test.
 - Fixed a fatal error which could occur if the request used to validate the app secret key fails.
 - Fixed a redirect loop issue when processing Dropbox feeds.
 - Fixed default label for Dropbox Upload field.
 - Fixed PHP fatal error when initializing API.
 - Fixed Update Settings button being hidden on plugin settings pages.
-- Modify execution order of *gform_dropbox_post_upload*.
+- Modify execution order of *[gform_dropbox_post_upload](https://docs.gravityforms.com/gform_dropbox_post_upload/)*.
 - Updated plugin compatibility check to verify existence of *openssl_random_pseudo_bytes* and *mcrypt_create_iv* functions.
 - Updated SSL compatibility check to allow for 404 response codes.
 
