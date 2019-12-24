@@ -166,15 +166,6 @@ class GF_Dropbox extends GFFeedAddOn {
 	protected $files_to_delete = array();
 
 	/**
-	 * Contains a queue of entry field values to update after feed processing is complete.
-	 *
-	 * @since  2.0
-	 * @access protected
-	 * @var    array $entry_values_to_update A queue of entry field values to update after feed processing is complete.
-	 */
-	protected $entry_values_to_update = array();
-
-	/**
 	 * Defines the nonce action used when processing Dropbox feeds.
 	 *
 	 * @since  1.0
@@ -248,12 +239,12 @@ class GF_Dropbox extends GFFeedAddOn {
 		// Setup feed processing on shutdown.
 		add_action( 'shutdown', array( $this, 'maybe_process_feed_on_shutdown' ), 10 );
 
-		// Process feeds upon admin POST request.
-		add_action( 'admin_init', array( $this, 'maybe_process_feed_on_post_request' ) );
-
 		// Prevent Dropbox Upload field from appearing if custom Dropbox app is not configured.
 		add_filter( 'gform_pre_render', array( $this, 'remove_dropbox_field' ) );
 		add_filter( 'gform_pre_validation', array( $this, 'remove_dropbox_field' ) );
+
+		// Attach files to notification
+		add_filter( 'gform_pre_send_email', array( $this, 'filter_gform_pre_send_email' ), 10, 4 );
 
 	}
 
@@ -274,6 +265,9 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		// Add AJAX callback for checking app key/secret validity.
 		add_action( 'wp_ajax_gfdropbox_valid_app_key_secret', array( $this, 'ajax_is_valid_app_key_secret' ) );
+
+		// Process feeds upon admin POST request.
+		add_action( 'wp_ajax_nopriv_' . $this->nonce_action, array( $this, 'maybe_process_feed_on_post_request' ) );
 
 	}
 
@@ -327,6 +321,7 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * @return array
 	 */
 	public function scripts() {
+		$min = defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG || isset( $_GET['gform_debug'] ) ? '' : '.min';
 
 		$scripts = array(
 			array(
@@ -338,7 +333,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			array(
 				'handle'  => 'gform_dropbox_formeditor',
 				'deps'    => array( 'jquery', 'gform_dropbox_jstree' ),
-				'src'     => $this->get_base_url() . '/js/form_editor.js',
+				'src'     => $this->get_base_url() . "/js/form_editor{$min}.js",
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -353,7 +348,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			array(
 				'handle'  => 'gform_dropbox_pluginsettings',
 				'deps'    => array( 'jquery' ),
-				'src'     => $this->get_base_url() . '/js/plugin_settings.js',
+				'src'     => $this->get_base_url() . "/js/plugin_settings{$min}.js",
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -370,7 +365,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			array(
 				'handle'  => 'gform_dropbox_frontend',
 				'deps'    => array( 'jquery' ),
-				'src'     => $this->get_base_url() . '/js/frontend.js',
+				'src'     => $this->get_base_url() . "/js/frontend{$min}.js",
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -392,6 +387,7 @@ class GF_Dropbox extends GFFeedAddOn {
 	 * @return array
 	 */
 	public function styles() {
+		$min = defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG || isset( $_GET['gform_debug'] ) ? '' : '.min';
 
 		$styles = array(
 			array(
@@ -407,7 +403,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			),
 			array(
 				'handle'  => 'gform_dropbox_admin',
-				'src'     => $this->get_base_url() . '/css/admin.css',
+				'src'     => $this->get_base_url() . "/css/admin{$min}.css",
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -418,7 +414,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			),
 			array(
 				'handle'  => 'gform_dropbox_frontend',
-				'src'     => $this->get_base_url() . '/css/frontend.css',
+				'src'     => $this->get_base_url() . "/css/frontend{$min}.css",
 				'version' => $this->_version,
 				'enqueue' => array(
 					array(
@@ -1398,7 +1394,7 @@ class GF_Dropbox extends GFFeedAddOn {
 			$this->log_debug( __METHOD__ . '(): Adding feed #' . $feed['id'] . ' to the processing queue.' );
 
 			// Add the feed to the queue.
-			$this->feeds_to_process[] = array( $feed, $entry['id'], $form['id'] );
+			$this->feeds_to_process[] = array( $feed['id'], $entry['id'], $form['id'] );
 
 			// Disable notifications.
 			add_filter( 'gform_disable_notification_' . $form['id'], array( $this, 'disable_notification' ), 10, 2 );
@@ -1447,14 +1443,18 @@ class GF_Dropbox extends GFFeedAddOn {
 		foreach ( $this->feeds_to_process as $index => $feed_to_process ) {
 
 			// Log that we're sending this feed to processing.
-			$this->log_debug( __METHOD__ . '(): Sending processing request for feed #' . $feed_to_process[0]['id'] . '.' );
+			$this->log_debug( __METHOD__ . '(): Sending processing request for feed #' . $feed_to_process[0] . '.' );
+
+			// Encode feed.
+			$feed_to_process = base64_encode( json_encode( $feed_to_process ) );
 
 			// Prepare the request.
 			$post_request = array(
 				'action'       => $this->nonce_action,
 				'data'         => $feed_to_process,
+				'hash'         => wp_hash( $feed_to_process, 'nonce' ),
 				'is_last_feed' => ( ( count( $this->feeds_to_process ) - 1 ) === $index ),
-				'_nonce'       => $this->create_nonce(),
+				'nonce'        => $this->create_nonce(),
 			);
 
 			// If this is the last feed to be processed, add notification events to send to the request.
@@ -1471,7 +1471,8 @@ class GF_Dropbox extends GFFeedAddOn {
 			$timeout = apply_filters( 'gform_dropbox_request_timeout', 0.01 );
 
 			// Send feed processing request.
-			$response = wp_remote_post( admin_url( 'admin-post.php' ),
+			$response = wp_remote_post(
+				admin_url( 'admin-ajax.php' ),
 				array(
 					'timeout'   => $timeout,
 					'sslverify' => apply_filters( 'https_local_ssl_verify', false ),
@@ -1494,52 +1495,66 @@ class GF_Dropbox extends GFFeedAddOn {
 	 */
 	public function maybe_process_feed_on_post_request() {
 
-		// Load WordPress pluggable functions.
-		require_once( ABSPATH .'wp-includes/pluggable.php' );
+		// Verify nonce.
+		if ( ! $this->verify_nonce( rgpost( 'nonce' ) ) ) {
+			$this->log_error( __METHOD__ . '(): Unable to verify nonce; ignoring processing request.' );
+			wp_die( 'Unable to verify nonce; ignoring processing request.' );
+		}
 
-		// Get request nonce.
-		$nonce = rgpost( '_nonce' );
+		// Get request data.
+		$data = rgpost( 'data' );
 
-		// If nonce is valid, process feed.
-		if ( gf_dropbox()->nonce_action === rgpost( 'action' ) && false !== gf_dropbox()->verify_nonce( $nonce ) ) {
+		// Verify hash.
+		if ( ! hash_equals( wp_hash( $data, 'nonce' ), rgpost( 'hash' ) ) ) {
+			$this->log_error( __METHOD__ . '(): Invalid request data; bailing.' );
+			wp_die( 'Invalid request data.' );
+		}
 
-			// Log that nonce is valid.
-			$this->log_debug( __METHOD__ . '(): Nonce verified; preparing to process request.' );
+		// Get feed, entry and form data.
+		$data  = json_decode( base64_decode( $data ), true );
+		$feed  = $this->get_feed( (int) $data[0] );
+		$entry = GFAPI::get_entry( (int) $data[1] );
+		$form  = GFAPI::get_form( (int) $data[2] );
 
-			// Get request data.
-			$data  = rgpost( 'data' );
-			$feed  = $data[0];
-			$entry = GFAPI::get_entry( $data[1] );
-			$form  = GFAPI::get_form( $data[2] );
+		// Run feed through pre-processor.
+		$feeds = $this->pre_process_feeds( array( $feed ), $entry, $form );
+		$feed  = $feeds[0];
 
-			// Process feed.
-			gf_dropbox()->process_feed_files( $feed, $entry, $form );
+		// Verify feed is not an array.
+		if ( ! is_array( $feed ) ) {
+			$this->log_error( __METHOD__ . '(): Provided feed data is not an array; bailing.' );
+			wp_die( 'Invalid feed data.' );
+		}
 
-			// Update entry links and send notifications if last feed being processed.
-			if ( rgpost( 'is_last_feed' ) ) {
+		// Log feed we are processing.
+		$this->log_debug( __METHOD__ . '(): Processing request for entry #' . $entry['id'] .' , feed #' . $feed['id'] );
 
-				// Update entry links.
-				$entry = gf_dropbox()->update_entry_links( $entry );
+		// Process feed.
+		$this->process_feed_files( $feed, $entry, $form );
 
-				// Get notification events.
-				$notification_events = rgpost( 'notification_events' );
+		// Update entry links and send notifications if last feed being processed.
+		if ( rgpost( 'is_last_feed' ) ) {
 
-				// If notification events are defined, send notifications for each event.
-				if ( is_array( $notification_events ) ) {
-					foreach ( $notification_events as $event ) {
-						GFAPI::send_notifications( $form, $entry, $event );
-					}
+			// Get a fresh entry object to be sure we send out the right file links after feed processing.
+			$entry = GFAPI::get_entry( $entry['id'] );
+
+			// Get notification events.
+			$notification_events = rgpost( 'notification_events' );
+
+			// If notification events are defined, send notifications for each event.
+			if ( is_array( $notification_events ) ) {
+				foreach ( $notification_events as $event ) {
+					GFAPI::send_notifications( $form, $entry, $event );
 				}
-
 			}
 
-			// Delete any local file that are not being stored.
-			gf_dropbox()->maybe_delete_files();
-
-			// Run action.
-			gf_do_action( array( 'gform_dropbox_post_upload', $form['id'] ), $feed, $entry, $form );
-
 		}
+
+		// Delete any local file that are not being stored.
+		$this->maybe_delete_files();
+
+		// Run action.
+		gf_do_action( array( 'gform_dropbox_post_upload', $form['id'] ), $feed, $entry, $form );
 
 	}
 
@@ -1698,9 +1713,6 @@ class GF_Dropbox extends GFFeedAddOn {
 		// Update entry detail.
 		GFAPI::update_entry_field( $entry['id'], $field->id, $files );
 
-		// Add to array to update entry value for notification.
-		gf_dropbox()->entry_values_to_update[ $field->id ] = $files;
-
 	}
 
 	/**
@@ -1782,9 +1794,6 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		// Update lead detail.
 		GFAPI::update_entry_field( $entry['id'], $field->id, $file_for_lead );
-
-		// Add to array to update entry value for notification.
-		gf_dropbox()->entry_values_to_update[ $field->id ] = $file_for_lead;
 
 	}
 
@@ -2010,38 +2019,49 @@ class GF_Dropbox extends GFFeedAddOn {
 	}
 
 	/**
-	 * Update entry with Dropbox links.
+	 * Replace attached Dropbox URLs with path to local file.
 	 *
-	 * @since  1.0
+	 * @since 2.5
 	 *
-	 * @param array $entry Entry object.
+	 * @param array  $email          An array containing the email to address, subject, message, headers, attachments and abort email flag.
+	 * @param string $message_format The message format: html or text.
+	 * @param array  $notification   The current Notification object.
+	 * @param array  $entry          The current Entry object.
 	 *
 	 * @return array
 	 */
-	public function update_entry_links( $entry ) {
+	public function filter_gform_pre_send_email( $email, $message_format, $notification, $entry ) {
 
-		// If there are entry values to update, update them.
-		if ( ! empty( gf_dropbox()->entry_values_to_update ) ) {
+		// If email does not have any attachments, return.
+		if ( rgempty( 'attachments', $email ) || ! is_array( $email['attachments'] ) ) {
+			return $email;
+		}
 
-			// Loop through fields.
-			foreach ( gf_dropbox()->entry_values_to_update as $field_id => $value ) {
+		// Loop through attachments, set Dropbox files to local files.
+		foreach ( $email['attachments'] as $a => $attachment_path ) {
 
-				// Strip slashes if needed.
-				if ( strpos( $value, '"' ) === 0 ) {
-					$value = stripslashes( substr( substr( $value, 0, -1 ), 1 ) );
-				}
+			// If this is not a Dropbox file, skip.
+			if ( strpos( $attachment_path, 'dropbox.com' ) === false ) {
+				continue;
+			}
 
-				// Log the entry value we're updating.
-				$this->log_debug( __METHOD__ . '(): Updating entry value for field #' . $field_id . ' to "' . $value . '".' );
+			// Get file name.
+			$file_name = basename( $attachment_path );
+			$file_name = str_replace( '?dl=0', '', $file_name );
 
-				// Update value.
-				$entry[ $field_id ] = $value;
+			// Get path to local file.
+			$local_path = GFFormsModel::get_upload_path( $entry['form_id'] ) . GFCommon::format_date( rgar( $entry, 'date_created' ), false, '/Y/m/', false ) . $file_name;
 
+			// If file exists, attach. Otherwise, remove.
+			if ( file_exists( $local_path ) ) {
+				$email['attachments'][ $a ] = $local_path;
+			} else {
+				unset( $email['attachments'][ $a ] );
 			}
 
 		}
 
-		return $entry;
+		return $email;
 
 	}
 
