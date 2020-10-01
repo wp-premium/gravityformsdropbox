@@ -1,3 +1,18 @@
+### 2.8 | 2020-09-24
+- Updated support for Gravity Forms 2.5.
+
+### 2.7 | 2020-07-13
+- Added security enhancements.
+- Added support for Gravity Forms 2.5.
+
+
+### 2.6 | 2020-04-01
+- Added translations for Hebrew, Hindi, Japanese, and Turkish.
+- Updated a few labels on the settings page related to connecting and disconnecting the add-on with Dropbox.
+- Updated Gravity API domain.
+- Fixed an issue where the Dropbox Upload field can pass the required validation if a file is uploaded and then removed.
+
+
 ### 2.5 | 2019-11-13
 - Updated Javascript files, stylesheets to use minified versions.
 - Fixed an issue with files uploaded to Dropbox not attaching to notifications.
