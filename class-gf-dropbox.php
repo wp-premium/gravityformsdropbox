@@ -236,6 +236,8 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		parent::init();
 
+		add_filter( 'gform_settings_header_buttons', array( $this, 'filter_gform_settings_header_buttons' ), 99 );
+
 		// Setup feed processing on shutdown.
 		add_action( 'shutdown', array( $this, 'maybe_process_feed_on_shutdown' ), 10 );
 
@@ -428,6 +430,19 @@ class GF_Dropbox extends GFFeedAddOn {
 
 	}
 
+	/**
+	 * Return the plugin's icon for the plugin/form settings menu.
+	 *
+	 * @since 2.6
+	 *
+	 * @return string
+	 */
+	public function get_menu_icon() {
+
+		return file_get_contents( $this->get_base_path() . '/images/menu-icon.svg' );
+
+	}
+
 
 
 
@@ -442,13 +457,23 @@ class GF_Dropbox extends GFFeedAddOn {
 	public function plugin_settings_page() {
 
 		// If access token is provided, save it.
-		if ( rgget( 'access_token' ) ) {
+		if ( rgpost( 'access_token' ) ) {
+
+			// If state does not match, do not save.
+			if ( ! wp_verify_nonce( rgpost( 'state' ), $this->get_authentication_state_action() ) ) {
+
+				// Add error message.
+				GFCommon::add_error_message( esc_html__( 'Unable to connect to Dropbox due to mismatched state.', 'gravityformsdropbox' ) );
+
+				return parent::plugin_settings_page();
+
+			}
 
 			// Get current plugin settings.
 			$settings = $this->get_plugin_settings();
 
 			// Add access token to plugin settings.
-			$settings['accessToken'] = rgget( 'access_token' );
+			$settings['accessToken'] = rgpost( 'access_token' );
 
 			// Save plugin settings.
 			$this->update_plugin_settings( $settings );
@@ -508,17 +533,17 @@ class GF_Dropbox extends GFFeedAddOn {
 			} catch ( Exception $e ) {
 
 				// Add error message.
-				GFCommon::add_error_message( esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) . ' ' . esc_html( $e->getMessage() ) );
+				GFCommon::add_error_message( esc_html__( 'Unable to connect to Dropbox.', 'gravityformsdropbox' ) . ' ' . esc_html( $e->getMessage() ) );
 
 			}
 
 		}
 
 		// If error is provided, display message.
-		if ( rgget( 'auth_error' ) ) {
+		if ( rgpost( 'auth_error' ) ) {
 
 			// Add error message.
-			GFCommon::add_error_message( esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) );
+			GFCommon::add_error_message( esc_html__( 'Unable to connect to Dropbox.', 'gravityformsdropbox' ) );
 
 		}
 
@@ -564,6 +589,35 @@ class GF_Dropbox extends GFFeedAddOn {
 	}
 
 	/**
+	 * Hide submit button on plugin settings page.
+	 *
+	 * @since 2.6
+	 *
+	 * @param string $html
+	 *
+	 * @return string
+	 */
+	public function filter_gform_settings_header_buttons( $html = '' ) {
+
+		// If this is not the plugin settings page, return.
+		if ( ! $this->is_plugin_settings( $this->get_slug() ) ) {
+			return $html;
+		}
+
+		// Do not display button if already initialized.
+		if ( $this->initialize_api() ) {
+			return '';
+		}
+
+		if ( ! $this->initialize_api() && $this->get_setting( 'customAppEnable' ) !== '1' ) {
+			return str_replace( '<button', '<button style="display:none;"', $html );
+		}
+
+		return $html;
+
+	}
+
+	/**
 	 * Create Generate Auth Token settings field.
 	 *
 	 * @since  2.0
@@ -589,11 +643,11 @@ class GF_Dropbox extends GFFeedAddOn {
 				// Get account information.
 				$account = $this->api->get_current_account();
 
-				$html .= '<p>' . esc_html__( 'Authenticated with Dropbox as: ', 'gravityformsdropbox' );
+				$html .= '<p>' . esc_html__( 'Connected to Dropbox as: ', 'gravityformsdropbox' );
 				$html .= esc_html( $account->name->display_name ) . '</p>';
 				$html .= sprintf(
 					' <a href="#" class="button" id="gform_dropbox_deauth_button">%1$s</a>',
-					esc_html__( 'De-Authorize Dropbox', 'gravityformsdropbox' )
+					esc_html__( 'Disconnect from Dropbox', 'gravityformsdropbox' )
 				);
 
 			} catch ( Exception $e ) {
@@ -626,12 +680,17 @@ class GF_Dropbox extends GFFeedAddOn {
 			} else {
 
 				// Prepare authorization URL.
+				$license_key  = GFCommon::get_key();
 				$settings_url = urlencode( admin_url( 'admin.php?page=gf_settings&subview=' . $this->_slug ) );
-				$auth_url     = add_query_arg( array( 'redirect_to' => $settings_url ), 'https://www.gravityhelp.com/wp-json/gravityapi/v1/auth/dropbox' );
+				$auth_url     = add_query_arg( array(
+					'redirect_to' => $settings_url,
+					'license'     => $license_key,
+					'state'       => wp_create_nonce( $this->get_authentication_state_action() ),
+				), $this->get_gravity_api_url( '/auth/dropbox' ) );
 
 				$html .= sprintf(
 					'<a href="%2$s" class="button" id="gform_dropbox_auth_button">%1$s</a>',
-					esc_html__( 'Click here to authenticate with Dropbox.', 'gravityformsdropbox' ),
+					esc_html__( 'Click here to connect to Dropbox.', 'gravityformsdropbox' ),
 					$auth_url
 				);
 
@@ -669,14 +728,16 @@ class GF_Dropbox extends GFFeedAddOn {
 		$valid_app_key_secret = $this->is_valid_app_key_secret();
 
 		// Open custom app table.
-		$html = '<table class="form-table">';
+		if ( version_compare( GFForms::$version, '2.5-dev-1', '<' ) ) {
+			$html = '<table class="form-table">';
+		}
 
 		ob_start();
 
 		// Display redirect URI.
 		$this->single_setting_row(
 			array(
-				'name'     => '',
+				'name'     => 'oauthRedirectURI',
 				'type'     => 'text',
 				'label'    => esc_html__( 'OAuth Redirect URI', 'gravityformsdropbox' ),
 				'class'    => 'large',
@@ -693,7 +754,7 @@ class GF_Dropbox extends GFFeedAddOn {
 				'type'              => 'text',
 				'label'             => esc_html__( 'App Key', 'gravityformsdropbox' ),
 				'class'             => 'medium',
-				'feedback_callback' => array( $this, 'is_valid_app_key_secret' ),
+				'feedback_callback' => function() { return $this->is_valid_app_key_secret(); },
 			)
 		);
 
@@ -704,25 +765,29 @@ class GF_Dropbox extends GFFeedAddOn {
 				'type'              => 'text',
 				'label'             => esc_html__( 'App Secret', 'gravityformsdropbox' ),
 				'class'             => 'medium',
-				'feedback_callback' => array( $this, 'is_valid_app_key_secret' ),
+				'feedback_callback' => function() { return $this->is_valid_app_key_secret(); },
 			)
 		);
 
 		$html .= ob_get_contents();
 		ob_end_clean();
 
+		if ( version_compare( GFForms::$version, '2.5-dev-1', '<' ) ) {
+			$html .= '<tr><td></td><td>';
+		}
+
 		// Display auth button.
-		$html .= '<tr><td></td><td>';
 		$html .= sprintf(
 			'<a href="%3$s" class="button" id="gform_dropbox_auth_button" style="%2$s">%1$s</a>',
-			esc_html__( 'Click here to authenticate with Dropbox.', 'gravityformsdropbox' ),
+			esc_html__( 'Click here to connect to Dropbox.', 'gravityformsdropbox' ),
 			! rgar( $settings, 'customAppEnable' ) || ( rgar( $settings, 'customAppEnable' ) && ! $valid_app_key_secret ) ? 'display:none' : null,
 			rgar( $settings, 'customAppEnable' ) && $valid_app_key_secret ? $this->get_auth_url() : '#'
 		);
-		$html .= '</td></tr>';
 
-		// Close custom app table.
-		$html .= '</table>';
+		// Close table.
+		if ( version_compare( GFForms::$version, '2.5-dev-1', '<' ) ) {
+			$html .= '</td></tr></table>';
+		}
 
 		return $html;
 
@@ -747,7 +812,7 @@ class GF_Dropbox extends GFFeedAddOn {
 
 		// If API cannot be initialized, exit.
 		if ( ! $this->initialize_api() ) {
-			wp_send_json_error( array( 'message' => esc_html__( 'Unable to authenticate with Dropbox.', 'gravityformsdropbox' ) ) );
+			wp_send_json_error( array( 'message' => esc_html__( 'Unable to connect to Dropbox.', 'gravityformsdropbox' ) ) );
 		}
 
 		// Get plugin settings.
@@ -887,10 +952,15 @@ class GF_Dropbox extends GFFeedAddOn {
 		$value         = $this->get_setting( $field['name'], $default_value );
 		$name          = esc_attr( $field['name'] );
 
-		$html = sprintf(
-			'<input name="%1$s" type="hidden" value="%2$s" /><div data-target="%1$s" class="folder_tree"></div>',
-			'_gaddon_setting_' . $name,
-			esc_attr( $value )
+		$hidden_field         = $field;
+		$hidden_field['type'] = 'hidden';
+		unset( $hidden_field['callback'] );
+
+		$html = $this->settings_hidden( $hidden_field, false );
+
+		$html .= sprintf(
+			'<div data-target="%1$s" class="folder_tree"></div>',
+			( version_compare( GFForms::$version, '2.5-dev-1', '<' ) ? '_gaddon_setting_' : '_gform_setting_' ) . $name
 		);
 
 		if ( $this->field_failed_validation( $field ) ) {
@@ -2572,6 +2642,32 @@ class GF_Dropbox extends GFFeedAddOn {
 			$this->update_plugin_settings( $settings );
 
 		}
+
+	}
+
+	/**
+	 * Get Gravity API URL.
+	 *
+	 * @since 2.5
+	 *
+	 * @param string $path Path.
+	 *
+	 * @return string
+	 */
+	public function get_gravity_api_url( $path = '' ) {
+		return ( defined( 'GRAVITY_API_URL' ) ? GRAVITY_API_URL : 'https://gravityapi.com/wp-json/gravityapi/v1' ) . $path;
+	}
+
+	/**
+	 * Get action name for authentication state.
+	 *
+	 * @since 2.7
+	 *
+	 * @return string
+	 */
+	public function get_authentication_state_action() {
+
+		return 'gform_dropbox_authentication_state';
 
 	}
 

@@ -1,3 +1,14 @@
 .dropbox-dropin-btn, .dropbox-dropin-btn:link {
 	height: auto !important;
 }
+
+.gdropbox {
+	margin-bottom: 0.5rem;
+}
+.gdropbox_preview + .gfield_description{
+	margin: 0.5rem 0 0.5rem 0;
+}
+
+.gdropbox_preview .ginput_preview{
+	margin: 0.5rem 0 0.5rem 0;
+}

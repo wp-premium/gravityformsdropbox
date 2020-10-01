@@ -12,6 +12,8 @@ window.GFDropboxSettings = null;
 				appKey:    this.getAppKey(),
 				appSecret: this.getAppSecret()
 			};
+
+			this.legacyUI = ! $( '#customAppKey' ).parent().hasClass( 'gform-settings-input__container' );
 			
 			this.pageURL = gform_dropbox_pluginsettings_strings.settings_url;
 
@@ -129,6 +131,7 @@ window.GFDropboxSettings = null;
 							alert( result.data.message );
 						}
 						self.lockAppKeyFields( false );
+						self.setAppKeyStatus( result.success, null );
 					} else {
 						self.setAppKeyStatus( result.success, result.data.auth_url );
 						self.lockAppKeyFields( false );
@@ -158,7 +161,11 @@ window.GFDropboxSettings = null;
 
 		this.resetAppKeyStatus = function() {
 
- 			$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).removeClass( 'icon-check icon-remove fa-check fa-times gf_valid gf_invalid' );
+			if ( this.legacyUI ) {
+				$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).removeClass( 'icon-check icon-remove fa-check fa-times gf_valid gf_invalid' );
+			} else {
+				$( '#gform_setting_customAppKey .gform-settings-field__feedback, #gform_setting_customAppSecret .gform-settings-field__feedback' ).removeClass( 'gform-settings-field__feedback--valid gform-settings-field__feedback--invalid' )
+			}
 
 		}
 
@@ -169,7 +176,11 @@ window.GFDropboxSettings = null;
 			}
 
 			if ( valid === false ) {
-				$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).addClass( 'icon-remove fa-times gf_invalid' );
+				if ( this.legacyUI ) {
+					$( '#gaddon-setting-row-customAppKey .fa, #gaddon-setting-row-customAppSecret .fa' ).addClass( 'icon-remove fa-times gf_invalid' );
+				} else {
+					$( '#gform_setting_customAppKey .gform-settings-field__feedback, #gform_setting_customAppSecret .gform-settings-field__feedback' ).addClass( 'gform-settings-field__feedback--invalid' )
+				}
 			}
 
 			if ( valid === false || valid === null ) {
@@ -182,11 +193,19 @@ window.GFDropboxSettings = null;
 		this.setupValidationIcons = function() {
 
 			if ( $( '#gaddon-setting-row-customAppKey .fa' ).length == 0 ) {
-				$( ' <i class="fa"></i>' ).insertAfter( $( '#customAppKey') );
+				if ( this.legacyUI ) {
+					$( ' <i class="fa"></i>' ).insertAfter( $( '#customAppKey' ) );
+				} else {
+					$( '<span class="gform-settings-field__feedback" aria-hidden="true"></span>' ).insertAfter( $( '#customAppKey' ) );
+				}
 			}
 
 			if ( $( '#gaddon-setting-row-customAppSecret .fa' ).length == 0 ) {
-				$( '<i class="fa"></i>' ).insertAfter( $( '#customAppSecret') );
+				if ( this.legacyUI ) {
+					$( ' <i class="fa"></i>' ).insertAfter( $( '#customAppSecret' ) );
+				} else {
+					$( '<span class="gform-settings-field__feedback" aria-hidden="true"></span>' ).insertAfter( $( '#customAppSecret' ) );
+				}
 			}
 
 		}

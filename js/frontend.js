@@ -99,7 +99,8 @@ window.GFDropbox = null;
 		
 		this.setFieldValue = function( value ) {
 
-			document.getElementById( 'input_' + this.formId + '_' + this.inputId ).value = JSON.stringify( value );
+			value = value.length ? JSON.stringify( value ) : '';
+			document.getElementById( 'input_' + this.formId + '_' + this.inputId ).value = value;
 
 		}
 		

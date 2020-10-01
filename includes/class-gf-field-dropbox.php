@@ -68,7 +68,7 @@ class GF_Field_Dropbox extends GF_Field {
 		$html  = "<input name='input_{$id}' id='{$field_id}' type='hidden' value='{$value}'  {$logic_event}/>";
 		$html .= "<script type='text/javascript' src='//www.dropbox.com/static/api/2/dropins.js' id='dropboxjs' data-app-key='{$dropbox_app_key}'></script>";
 
-		return sprintf( "<div class='ginput_container'>%s</div><div id='gform_preview_%s_%s'></div>", $html, $form_id, $id );
+		return sprintf( "<div class='gdropbox ginput_container'>%s</div><div id='gform_preview_%s_%s' class='gdropbox_preview'></div>", $html, $form_id, $id );
 
 	}
 
@@ -130,6 +130,19 @@ class GF_Field_Dropbox extends GF_Field {
 
 		return esc_attr__( 'Dropbox Upload', 'gravityformsdropbox' );
 
+	}
+
+	/**
+	 * Returns the field's form editor icon.
+	 *
+	 * This could be an icon url or a dashicons class.
+	 *
+	 * @since 2.7
+	 *
+	 * @return string
+	 */
+	public function get_form_editor_field_icon() {
+		return gf_dropbox()->get_base_url() . '/images/dropbox-icon.svg';
 	}
 
 	/**
