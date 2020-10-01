@@ -1,17 +1,17 @@
 <?php
 /**
 Plugin Name: Gravity Forms Dropbox Add-On
-Plugin URI: https://www.gravityforms.com
+Plugin URI: https://gravityforms.com
 Description: Integrates Gravity Forms with Dropbox, enabling end users to upload files to Dropbox through Gravity Forms.
-Version: 2.5
-Author: rocketgenius
-Author URI: https://www.rocketgenius.com
+Version: 2.8
+Author: Gravity Forms
+Author URI: https://gravityforms.com
 License: GPL-2.0+
 Text Domain: gravityformsdropbox
 Domain Path: /languages
 
 ------------------------------------------------------------------------
-Copyright 2012-2019 Rocketgenius Inc.
+Copyright 2012-2020 Rocketgenius Inc.
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -28,9 +28,9 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 **/
 
-defined( 'ABSPATH' ) or die();
+defined( 'ABSPATH' ) || die();
 
-define( 'GF_DROPBOX_VERSION', '2.5' );
+define( 'GF_DROPBOX_VERSION', '2.8' );
 
 // If Gravity Forms is loaded, bootstrap the Dropbox Add-On.
 add_action( 'gform_loaded', array( 'GF_Dropbox_Bootstrap', 'load' ), 5 );
